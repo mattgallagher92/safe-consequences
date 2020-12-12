@@ -6,6 +6,7 @@ open Shared
 
 type Page =
     | LandingPage
+    | UsernamePage
     | Lobby of Room
 
 type Model =
@@ -13,6 +14,8 @@ type Model =
       ActivePage: Page }
 
 type Msg =
+    | StartCreatingRoom
+    | SetNameInput of string
     | CreateRoom
     | RoomCreated of Room
 
@@ -29,9 +32,20 @@ let init (): Model * Cmd<Msg> =
 
 let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
     match msg with
+    | StartCreatingRoom ->
+        { model with ActivePage = UsernamePage }, Cmd.none
+    | SetNameInput value ->
+        let user =
+            match value with
+            | "" -> User.unassignName model.User
+            | _ -> Named <| User.assignName value model.User
+        { model with User = user }, Cmd.none
     | CreateRoom ->
-        let cmd = Cmd.OfAsync.perform consequencesApi.createRoom model.User RoomCreated
-        model, cmd
+        match model.User with
+        | Named user ->
+            let cmd = Cmd.OfAsync.perform consequencesApi.createRoom user RoomCreated
+            model, cmd
+        | Anonymous user -> failwith "TODO"
     | RoomCreated room ->
         { model with ActivePage = Lobby room }, Cmd.none
 
@@ -52,49 +66,93 @@ let navBrand =
         ]
     ]
 
-let containerBox (model : Model) (dispatch : Msg -> unit) =
-    Box.box' [ ] [
-        Field.div [ Field.IsGrouped ] [
-            Control.p [ ] [
-                Button.a [
-                    Button.Color IsPrimary
-                    Button.OnClick (fun _ -> dispatch CreateRoom)
+let landingPage (model : Model) (dispatch : Msg -> unit) =
+    Hero.hero [
+        Hero.Color IsPrimary
+        Hero.IsFullHeight
+        Hero.Props [
+            Style [
+                Background """linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), url("https://unsplash.it/1200/900?random") no-repeat center center fixed"""
+                BackgroundSize "cover"
+            ]
+        ]
+    ] [
+        Hero.head [ ] [
+            Navbar.navbar [ ] [
+                Container.container [ ] [ navBrand ]
+            ]
+        ]
+
+        Hero.body [ ] [
+            Container.container [ ] [
+                Column.column [
+                    Column.Width (Screen.All, Column.Is6)
+                    Column.Offset (Screen.All, Column.Is3)
                 ] [
-                    str "Create a room"
+                    Heading.p [ Heading.Modifiers [ Modifier.TextAlignment (Screen.All, TextAlignment.Centered) ] ] [ str "consequences" ]
+                    Box.box' [ ] [
+                        Field.div [ Field.IsGrouped ] [
+                            Control.p [ ] [
+                                Button.a [
+                                    Button.Color IsPrimary
+                                    Button.OnClick (fun _ -> dispatch StartCreatingRoom)
+                                ] [
+                                    str "Create a room"
+                                ]
+                            ]
+                        ]
+                    ]
                 ]
             ]
         ]
     ]
 
-let view (model : Model) (dispatch : Msg -> unit) =
-    match model.ActivePage with
-    | LandingPage ->
-        Hero.hero [
-            Hero.Color IsPrimary
-            Hero.IsFullHeight
-            Hero.Props [
-                Style [
-                    Background """linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), url("https://unsplash.it/1200/900?random") no-repeat center center fixed"""
-                    BackgroundSize "cover"
-                ]
-            ]
+let usernamePage (model : Model) (dispatch : Msg -> unit) =
+    Container.container [ ] [
+        Column.column [
+            Column.Width (Screen.All, Column.Is6)
+            Column.Offset (Screen.All, Column.Is3)
         ] [
-            Hero.head [ ] [
-                Navbar.navbar [ ] [
-                    Container.container [ ] [ navBrand ]
+            Heading.p
+                [ Heading.Modifiers [ Modifier.TextAlignment (Screen.All, TextAlignment.Centered) ] ]
+                [ str "What's your name?" ]
+            Box.box' [ ] [
+                Field.div [ ] [
+                    Label.label [ ] [ str "Name" ]
+                    Control.div [ ] [
+                        Input.text [
+                            Input.Value
+                              ( match model.User with
+                                | Anonymous uid -> ""
+                                | Named user -> user.Name )
+                            Input.OnChange (fun x -> SetNameInput x.Value |> dispatch)
+                        ]
+                    ]
                 ]
-            ]
-
-            Hero.body [ ] [
-                Container.container [ ] [
-                    Column.column [
-                        Column.Width (Screen.All, Column.Is6)
-                        Column.Offset (Screen.All, Column.Is3)
-                    ] [
-                        Heading.p [ Heading.Modifiers [ Modifier.TextAlignment (Screen.All, TextAlignment.Centered) ] ] [ str "consequences" ]
-                        containerBox model dispatch
+                Field.div [ ] [
+                    Control.p [ ] [
+                        Button.a [
+                            Button.Color IsPrimary
+                            Button.OnClick (fun _ -> dispatch CreateRoom)
+                        ] [
+                            str "Submit"
+                        ]
                     ]
                 ]
             ]
         ]
-    | Lobby room -> str <| string room
+    ]
+
+let lobby (room : Room) (model : Model) (dispatch : Msg -> unit) =
+    Container.container [ ] [
+        Heading.h1 [ ] [
+            str <| sprintf "Room %s" (RoomId.value room.Id)
+        ]
+        str <| string room.Owner
+    ]
+
+let view (model : Model) (dispatch : Msg -> unit) =
+    match model.ActivePage with
+    | LandingPage -> landingPage model dispatch
+    | UsernamePage -> usernamePage model dispatch
+    | Lobby room -> lobby room model dispatch

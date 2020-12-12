@@ -4,19 +4,36 @@ open System
 
 type UserId = UserId of Guid
 
+type NamedUser =
+    { Id: UserId
+      Name: string }
+
 type User =
-    { Id: UserId }
+    | Anonymous of UserId
+    | Named of NamedUser
 
 module User =
 
-    let create () =
-        { Id = UserId <| Guid.NewGuid () }
+    let create () = Guid.NewGuid () |> UserId |> Anonymous
+
+    let userId = function | Anonymous uid -> uid | Named user -> user.Id
+
+    let assignName name user =
+        { Id = userId user
+          Name = name }
+
+    let unassignName user =
+        Anonymous <| userId user
 
 type RoomId = RoomId of string
 
+module RoomId =
+
+    let value (RoomId id) = id
+
 type Room =
     { Id: RoomId
-      Owner: User }
+      Owner: NamedUser }
 
 type Todo =
     { Id : Guid
@@ -35,4 +52,4 @@ module Route =
         sprintf "/api/%s/%s" typeName methodName
 
 type IConsequencesApi =
-    { createRoom: User -> Async<Room> }
+    { createRoom: NamedUser -> Async<Room> }
