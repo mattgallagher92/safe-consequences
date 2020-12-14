@@ -126,10 +126,24 @@ let usernamePage (model : Model) (dispatch : Msg -> unit) =
 
 let lobby (room : Room) (model : Model) (dispatch : Msg -> unit) =
     Container.container [ ] [
-        Heading.h1 [ ] [
-            str <| sprintf "Room %s" (RoomId.value room.Id)
+        Column.column [
+            Column.Width (Screen.All, Column.Is6)
+            Column.Offset (Screen.All, Column.Is3)
+        ] [
+            Heading.p
+                [ Heading.Modifiers [ Modifier.TextAlignment (Screen.All, TextAlignment.Centered) ] ]
+                [ str <| sprintf "Room %s" (RoomId.value room.Id) ]
+            Box.box' [ ] [
+                Heading.p [ Heading.Is4 ] [
+                    str "Players"
+                ]
+                Content.content [ ] [
+                    ol [ ] [
+                        li [ ] [ str <| room.Owner.Name ]
+                    ]
+                ]
+            ]
         ]
-        str <| string room.Owner
     ]
 
 let view (model : Model) (dispatch : Msg -> unit) =
