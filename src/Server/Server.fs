@@ -5,6 +5,7 @@ open Fable.Remoting.Giraffe
 open Saturn
 
 open Shared
+open System
 
 type Storage () =
     let todos = ResizeArray<_>()
@@ -20,23 +21,27 @@ type Storage () =
 
 let storage = Storage()
 
-storage.AddTodo(Todo.create "Create new SAFE project") |> ignore
-storage.AddTodo(Todo.create "Write your app") |> ignore
-storage.AddTodo(Todo.create "Ship it !!!") |> ignore
+module Room =
 
-let todosApi =
-    { getTodos = fun () -> async { return storage.GetTodos() }
-      addTodo =
-        fun todo -> async {
-            match storage.AddTodo todo with
-            | Ok () -> return todo
-            | Error e -> return failwith e
-        } }
+    let private rnd = Random ()
+
+    let private randomLetter () =
+        rnd.Next (0, 26)
+        |> (+) <| int 'a'
+        |> Char.ConvertFromUtf32
+
+    let create owner =
+        let rl = randomLetter
+        { Id = rl () + rl () + rl () + rl () |> RoomId
+          Owner = owner }
+
+let consequencesApi =
+    { createRoom = fun owner -> async { return Room.create owner } }
 
 let webApp =
     Remoting.createApi()
     |> Remoting.withRouteBuilder Route.builder
-    |> Remoting.fromValue todosApi
+    |> Remoting.fromValue consequencesApi
     |> Remoting.buildHttpHandler
 
 let app =

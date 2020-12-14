@@ -4,40 +4,50 @@ open Elmish
 open Fable.Remoting.Client
 open Shared
 
+type Page =
+    | LandingPage
+    | UsernamePage
+    | Lobby of Room
+
 type Model =
-    { Todos: Todo list
-      Input: string }
+    { User: User
+      ActivePage: Page }
 
 type Msg =
-    | GotTodos of Todo list
-    | SetInput of string
-    | AddTodo
-    | AddedTodo of Todo
+    | StartCreatingRoom
+    | SetNameInput of string
+    | CreateRoom
+    | RoomCreated of Room
 
-let todosApi =
-    Remoting.createApi()
+let consequencesApi =
+    Remoting.createApi ()
     |> Remoting.withRouteBuilder Route.builder
-    |> Remoting.buildProxy<ITodosApi>
+    |> Remoting.buildProxy<IConsequencesApi>
 
-let init(): Model * Cmd<Msg> =
+let init (): Model * Cmd<Msg> =
     let model =
-        { Todos = []
-          Input = "" }
-    let cmd = Cmd.OfAsync.perform todosApi.getTodos () GotTodos
-    model, cmd
+        { User = User.create ()
+          ActivePage = LandingPage }
+    model, Cmd.none
 
 let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
     match msg with
-    | GotTodos todos ->
-        { model with Todos = todos }, Cmd.none
-    | SetInput value ->
-        { model with Input = value }, Cmd.none
-    | AddTodo ->
-        let todo = Todo.create model.Input
-        let cmd = Cmd.OfAsync.perform todosApi.addTodo todo AddedTodo
-        { model with Input = "" }, cmd
-    | AddedTodo todo ->
-        { model with Todos = model.Todos @ [ todo ] }, Cmd.none
+    | StartCreatingRoom ->
+        { model with ActivePage = UsernamePage }, Cmd.none
+    | SetNameInput value ->
+        let user =
+            match value with
+            | "" -> User.unassignName model.User
+            | _ -> Named <| User.assignName value model.User
+        { model with User = user }, Cmd.none
+    | CreateRoom ->
+        match model.User with
+        | Named user ->
+            let cmd = Cmd.OfAsync.perform consequencesApi.createRoom user RoomCreated
+            model, cmd
+        | Anonymous user -> failwith "TODO"
+    | RoomCreated room ->
+        { model with ActivePage = Lobby room }, Cmd.none
 
 open Fable.React
 open Fable.React.Props
@@ -56,59 +66,88 @@ let navBrand =
         ]
     ]
 
-let containerBox (model : Model) (dispatch : Msg -> unit) =
-    Box.box' [ ] [
-        Content.content [ ] [
-            Content.Ol.ol [ ] [
-                for todo in model.Todos do
-                    li [ ] [ str todo.Description ]
+let landingPage (model : Model) (dispatch : Msg -> unit) =
+    Container.container [ ] [
+        Column.column [
+            Column.Width (Screen.All, Column.Is6)
+            Column.Offset (Screen.All, Column.Is3)
+        ] [
+            Heading.p [ Heading.Modifiers [ Modifier.TextAlignment (Screen.All, TextAlignment.Centered) ] ] [ str "consequences" ]
+            Box.box' [ ] [
+                Field.div [ Field.IsGrouped ] [
+                    Control.p [ ] [
+                        Button.a [
+                            Button.Color IsPrimary
+                            Button.OnClick (fun _ -> dispatch StartCreatingRoom)
+                        ] [
+                            str "Create a room"
+                        ]
+                    ]
+                ]
             ]
         ]
-        Field.div [ Field.IsGrouped ] [
-            Control.p [ Control.IsExpanded ] [
-                Input.text [
-                  Input.Value model.Input
-                  Input.Placeholder "What needs to be done?"
-                  Input.OnChange (fun x -> SetInput x.Value |> dispatch) ]
+    ]
+
+let usernamePage (model : Model) (dispatch : Msg -> unit) =
+    Container.container [ ] [
+        Column.column [
+            Column.Width (Screen.All, Column.Is6)
+            Column.Offset (Screen.All, Column.Is3)
+        ] [
+            Heading.p
+                [ Heading.Modifiers [ Modifier.TextAlignment (Screen.All, TextAlignment.Centered) ] ]
+                [ str "What's your name?" ]
+            Box.box' [ ] [
+                Field.div [ ] [
+                    Label.label [ ] [ str "Name" ]
+                    Control.div [ ] [
+                        Input.text [
+                            Input.Value
+                              ( match model.User with
+                                | Anonymous uid -> ""
+                                | Named user -> user.Name )
+                            Input.OnChange (fun x -> SetNameInput x.Value |> dispatch)
+                        ]
+                    ]
+                ]
+                Field.div [ ] [
+                    Control.p [ ] [
+                        Button.a [
+                            Button.Color IsPrimary
+                            Button.OnClick (fun _ -> dispatch CreateRoom)
+                        ] [
+                            str "Submit"
+                        ]
+                    ]
+                ]
             ]
-            Control.p [ ] [
-                Button.a [
-                    Button.Color IsPrimary
-                    Button.Disabled (Todo.isValid model.Input |> not)
-                    Button.OnClick (fun _ -> dispatch AddTodo)
-                ] [
-                    str "Add"
+        ]
+    ]
+
+let lobby (room : Room) (model : Model) (dispatch : Msg -> unit) =
+    Container.container [ ] [
+        Column.column [
+            Column.Width (Screen.All, Column.Is6)
+            Column.Offset (Screen.All, Column.Is3)
+        ] [
+            Heading.p
+                [ Heading.Modifiers [ Modifier.TextAlignment (Screen.All, TextAlignment.Centered) ] ]
+                [ str <| sprintf "Room %s" (RoomId.value room.Id) ]
+            Box.box' [ ] [
+                Heading.p [ Heading.Is4 ] [
+                    str "Players"
+                ]
+                Content.content [ ] [
+                    ol [ ] [
+                        li [ ] [ str <| room.Owner.Name ]
+                    ]
                 ]
             ]
         ]
     ]
 
 let view (model : Model) (dispatch : Msg -> unit) =
-    Hero.hero [
-        Hero.Color IsPrimary
-        Hero.IsFullHeight
-        Hero.Props [
-            Style [
-                Background """linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), url("https://unsplash.it/1200/900?random") no-repeat center center fixed"""
-                BackgroundSize "cover"
-            ]
-        ]
-    ] [
-        Hero.head [ ] [
-            Navbar.navbar [ ] [
-                Container.container [ ] [ navBrand ]
-            ]
-        ]
-
-        Hero.body [ ] [
-            Container.container [ ] [
-                Column.column [
-                    Column.Width (Screen.All, Column.Is6)
-                    Column.Offset (Screen.All, Column.Is3)
-                ] [
-                    Heading.p [ Heading.Modifiers [ Modifier.TextAlignment (Screen.All, TextAlignment.Centered) ] ] [ str "consequences" ]
-                    containerBox model dispatch
-                ]
-            ]
-        ]
-    ]
+    match model.ActivePage with
+    | LandingPage -> landingPage model dispatch
+    | UsernamePage -> usernamePage model dispatch
+    | Lobby room -> lobby room model dispatch
