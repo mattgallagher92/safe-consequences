@@ -32,9 +32,10 @@ type Model =
 
 type Msg =
     | StartCreatingRoom
-    | SetNameInput of string
-    | CreateRoom of string
-    | RoomCreated of Room
+    | SetNameInput of name:string
+    | SubmitNameInput of name:string * namedUserToMsg:(NamedUser -> Msg)
+    | CreateRoom of user:NamedUser
+    | RoomCreated of room:Room
 
 let consequencesApi =
     Remoting.createApi ()
@@ -58,19 +59,22 @@ let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
             | UsernamePage data -> UsernamePage { data with Username = value }
             | Lobby room -> Lobby room
         { model with ActivePage = p }, Cmd.none
-    | CreateRoom username ->
-        let user =
-            match username with
+    | SubmitNameInput (name, msgForNamedUser) ->
+        let u =
+            match name with
             | "" -> User.unassignName model.User
-            | _ -> Named <| User.assignName username model.User
-        let newModel = { model with User = user }
+            | s -> Named <| User.assignName s model.User
+        let newModel = { model with User = u }
 
         match newModel.User with
         | Named user ->
-            let cmd = Cmd.OfAsync.perform consequencesApi.createRoom user RoomCreated
+            let cmd = Cmd.ofMsg <| msgForNamedUser user
             newModel, cmd
         | Anonymous _ ->
             { newModel with ActivePage = Page.SetError "You must enter a name" newModel.ActivePage }, Cmd.none
+    | CreateRoom user ->
+        let cmd = Cmd.OfAsync.perform consequencesApi.createRoom user RoomCreated
+        model, cmd
     | RoomCreated room ->
         { model with ActivePage = Lobby room }, Cmd.none
 
@@ -142,7 +146,7 @@ let usernamePage data (dispatch : Msg -> unit) =
                     Control.p [ ] [
                         Button.a [
                             Button.Color IsPrimary
-                            Button.OnClick (fun _ -> dispatch <| CreateRoom data.Username)
+                            Button.OnClick (fun _ -> dispatch <| SubmitNameInput (data.Username, CreateRoom))
                         ] [
                             str "Submit"
                         ]
