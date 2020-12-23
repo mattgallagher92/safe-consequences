@@ -4,10 +4,27 @@ open Elmish
 open Fable.Remoting.Client
 open Shared
 
+type UsernamePageData =
+    { Username: string
+      ErrorMessageOpt: string option }
+
+      static member Init () =
+          { Username = ""
+            ErrorMessageOpt = None }
+
 type Page =
     | LandingPage
-    | UsernamePage
+    | UsernamePage of UsernamePageData
     | Lobby of Room
+
+module Page =
+
+    let SetError msg =
+        function
+        | LandingPage -> LandingPage
+        | UsernamePage data -> UsernamePage { data with ErrorMessageOpt = Some msg }
+        | Lobby room -> Lobby room
+
 
 type Model =
     { User: User
@@ -15,9 +32,10 @@ type Model =
 
 type Msg =
     | StartCreatingRoom
-    | SetNameInput of string
-    | CreateRoom
-    | RoomCreated of Room
+    | SetNameInput of name:string
+    | SubmitNameInput of name:string * namedUserToMsg:(NamedUser -> Msg)
+    | CreateRoom of user:NamedUser
+    | RoomCreated of room:Room
 
 let consequencesApi =
     Remoting.createApi ()
@@ -33,19 +51,30 @@ let init (): Model * Cmd<Msg> =
 let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
     match msg with
     | StartCreatingRoom ->
-        { model with ActivePage = UsernamePage }, Cmd.none
+        { model with ActivePage = UsernamePage <| UsernamePageData.Init () }, Cmd.none
     | SetNameInput value ->
-        let user =
-            match value with
+        let p =
+            match model.ActivePage with
+            | LandingPage -> LandingPage
+            | UsernamePage data -> UsernamePage { data with Username = value }
+            | Lobby room -> Lobby room
+        { model with ActivePage = p }, Cmd.none
+    | SubmitNameInput (name, msgForNamedUser) ->
+        let u =
+            match name with
             | "" -> User.unassignName model.User
-            | _ -> Named <| User.assignName value model.User
-        { model with User = user }, Cmd.none
-    | CreateRoom ->
-        match model.User with
+            | s -> Named <| User.assignName s model.User
+        let newModel = { model with User = u }
+
+        match newModel.User with
         | Named user ->
-            let cmd = Cmd.OfAsync.perform consequencesApi.createRoom user RoomCreated
-            model, cmd
-        | Anonymous user -> failwith "TODO"
+            let cmd = Cmd.ofMsg <| msgForNamedUser user
+            newModel, cmd
+        | Anonymous _ ->
+            { newModel with ActivePage = Page.SetError "You must enter a name" newModel.ActivePage }, Cmd.none
+    | CreateRoom user ->
+        let cmd = Cmd.OfAsync.perform consequencesApi.createRoom user RoomCreated
+        model, cmd
     | RoomCreated room ->
         { model with ActivePage = Lobby room }, Cmd.none
 
@@ -88,7 +117,7 @@ let landingPage (model : Model) (dispatch : Msg -> unit) =
         ]
     ]
 
-let usernamePage (model : Model) (dispatch : Msg -> unit) =
+let usernamePage data (dispatch : Msg -> unit) =
     Container.container [ ] [
         Column.column [
             Column.Width (Screen.All, Column.Is6)
@@ -102,19 +131,22 @@ let usernamePage (model : Model) (dispatch : Msg -> unit) =
                     Label.label [ ] [ str "Name" ]
                     Control.div [ ] [
                         Input.text [
-                            Input.Value
-                              ( match model.User with
-                                | Anonymous uid -> ""
-                                | Named user -> user.Name )
+                            match data.ErrorMessageOpt with
+                            | Some _ -> Input.Color IsDanger
+                            | None -> ()
+                            Input.Value data.Username
                             Input.OnChange (fun x -> SetNameInput x.Value |> dispatch)
                         ]
                     ]
+                    match data.ErrorMessageOpt with
+                    | Some msg -> Help.help [ Help.Option.Color IsDanger ] [ str msg ]
+                    | None -> ()
                 ]
                 Field.div [ ] [
                     Control.p [ ] [
                         Button.a [
                             Button.Color IsPrimary
-                            Button.OnClick (fun _ -> dispatch CreateRoom)
+                            Button.OnClick (fun _ -> dispatch <| SubmitNameInput (data.Username, CreateRoom))
                         ] [
                             str "Submit"
                         ]
@@ -124,7 +156,7 @@ let usernamePage (model : Model) (dispatch : Msg -> unit) =
         ]
     ]
 
-let lobby (room : Room) (model : Model) (dispatch : Msg -> unit) =
+let lobby (room : Room) (dispatch : Msg -> unit) =
     Container.container [ ] [
         Column.column [
             Column.Width (Screen.All, Column.Is6)
@@ -149,5 +181,5 @@ let lobby (room : Room) (model : Model) (dispatch : Msg -> unit) =
 let view (model : Model) (dispatch : Msg -> unit) =
     match model.ActivePage with
     | LandingPage -> landingPage model dispatch
-    | UsernamePage -> usernamePage model dispatch
-    | Lobby room -> lobby room model dispatch
+    | UsernamePage data -> usernamePage data dispatch
+    | Lobby room -> lobby room dispatch
