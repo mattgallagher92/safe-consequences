@@ -3,44 +3,25 @@ module Index
 open Elmish
 open Fable.Remoting.Client
 open Shared
-
-type UsernamePageData =
-    { Username: string
-      ErrorMessageOpt: string option }
-
-      static member Init () =
-          { Username = ""
-            ErrorMessageOpt = None }
-
-type RoomIdPageData =
-    { RoomId: string
-      ErrorMessageOpt: string option }
-
-      static member Init () =
-          { RoomId = ""
-            ErrorMessageOpt = None }
-
 type Page =
     | LandingPage
-    | UsernamePage of UsernamePageData
+    | UsernamePage of errorMessageOpt:string option
     | Lobby of Room
-    | RoomIdPage of RoomIdPageData
+    | RoomIdPage of errorMessageOpt:string option
 
 module Page =
 
     let SetError msg =
         function
         | LandingPage -> LandingPage
-        | UsernamePage data -> UsernamePage { data with ErrorMessageOpt = Some msg }
+        | UsernamePage _ -> UsernamePage <| Some msg
         | Lobby room -> Lobby room
-        | RoomIdPage data -> RoomIdPage { data with ErrorMessageOpt = Some msg }
-
-// TODO: this is too componenty and not very elmy.
-// See https://github.com/fsprojects/Fabulous/issues/144#issuecomment-489963105
-// and https://www.reddit.com/r/elm/comments/5jd2xn/how_to_structure_elm_with_multiple_models/dbuu0m4/
+        | RoomIdPage _ -> RoomIdPage <| Some msg
 type Model =
     { User: User
-      ActivePage: Page }
+      ActivePage: Page
+      NameInput: string
+      RoomIdInput: string }
 
 type Msg =
     | StartCreatingRoom
@@ -60,21 +41,17 @@ let consequencesApi =
 let init () : Model * Cmd<Msg> =
     let model =
         { User = User.create ()
-          ActivePage = LandingPage }
+          ActivePage = LandingPage
+          NameInput = ""
+          RoomIdInput = "" }
     model, Cmd.none
 
 let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
     match msg with
     | StartCreatingRoom ->
-        { model with ActivePage = UsernamePage <| UsernamePageData.Init () }, Cmd.none
+        { model with ActivePage = UsernamePage None }, Cmd.none
     | SetNameInput value ->
-        let p =
-            match model.ActivePage with
-            | LandingPage -> LandingPage
-            | UsernamePage data -> UsernamePage { data with Username = value }
-            | Lobby room -> Lobby room
-            | RoomIdPage data -> RoomIdPage data
-        { model with ActivePage = p }, Cmd.none
+        { model with NameInput = value }, Cmd.none
     | SubmitName (name, msgForNamedUser) ->
         let u =
             match name with
@@ -94,15 +71,9 @@ let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
     | RoomCreated room ->
         { model with ActivePage = Lobby room }, Cmd.none
     | StartJoiningRoom ->
-        { model with ActivePage = RoomIdPage <| RoomIdPageData.Init () }, Cmd.none
+        { model with ActivePage = RoomIdPage None }, Cmd.none
     | SetRoomIdInput value ->
-        let p =
-            match model.ActivePage with
-            | LandingPage -> LandingPage
-            | UsernamePage data -> UsernamePage data
-            | Lobby room -> Lobby room
-            | RoomIdPage data -> RoomIdPage { data with RoomId = value }
-        { model with ActivePage = p }, Cmd.none
+        { model with RoomIdInput = value }, Cmd.none
     | JoinRoom roomdId -> failwith "TODO"
 
 open Fable.React
@@ -151,7 +122,7 @@ let landingPage (model : Model) (dispatch : Msg -> unit) =
         ]
     ]
 
-let usernamePage (data : UsernamePageData) (dispatch : Msg -> unit) =
+let usernamePage usernameInput errorMessageOpt (dispatch : Msg -> unit) =
     Container.container [ ] [
         Column.column [
             Column.Width (Screen.All, Column.Is6)
@@ -165,14 +136,14 @@ let usernamePage (data : UsernamePageData) (dispatch : Msg -> unit) =
                     Label.label [ ] [ str "Name" ]
                     Control.div [ ] [
                         Input.text [
-                            match data.ErrorMessageOpt with
+                            match errorMessageOpt with
                             | Some _ -> Input.Color IsDanger
                             | None -> ()
-                            Input.Value data.Username
+                            Input.Value usernameInput
                             Input.OnChange (fun x -> SetNameInput x.Value |> dispatch)
                         ]
                     ]
-                    match data.ErrorMessageOpt with
+                    match errorMessageOpt with
                     | Some msg -> Help.help [ Help.Option.Color IsDanger ] [ str msg ]
                     | None -> ()
                 ]
@@ -180,7 +151,7 @@ let usernamePage (data : UsernamePageData) (dispatch : Msg -> unit) =
                     Control.p [ ] [
                         Button.a [
                             Button.Color IsPrimary
-                            Button.OnClick (fun _ -> dispatch <| SubmitName (data.Username, CreateRoom))
+                            Button.OnClick (fun _ -> dispatch <| SubmitName (usernameInput, CreateRoom))
                         ] [
                             str "Submit"
                         ]
@@ -212,7 +183,7 @@ let lobby (room : Room) (dispatch : Msg -> unit) =
         ]
     ]
 
-let roomIdPage (data : RoomIdPageData) (dispatch : Msg -> unit) =
+let roomIdPage roomIdInput errorMessageOpt (dispatch : Msg -> unit) =
     Container.container [ ] [
         Column.column [
             Column.Width (Screen.All, Column.Is6)
@@ -226,14 +197,14 @@ let roomIdPage (data : RoomIdPageData) (dispatch : Msg -> unit) =
                     Label.label [ ] [ str "RoomId" ]
                     Control.div [ ] [
                         Input.text [
-                            match data.ErrorMessageOpt with
+                            match errorMessageOpt with
                             | Some _ -> Input.Color IsDanger
                             | None -> ()
-                            Input.Value data.RoomId
+                            Input.Value roomIdInput
                             Input.OnChange (fun x -> SetRoomIdInput x.Value |> dispatch)
                         ]
                     ]
-                    match data.ErrorMessageOpt with
+                    match errorMessageOpt with
                     | Some msg -> Help.help [ Help.Option.Color IsDanger ] [ str msg ]
                     | None -> ()
                 ]
@@ -241,7 +212,7 @@ let roomIdPage (data : RoomIdPageData) (dispatch : Msg -> unit) =
                     Control.p [ ] [
                         Button.a [
                             Button.Color IsPrimary
-                            Button.OnClick (fun _ -> dispatch <| JoinRoom data.RoomId)
+                            Button.OnClick (fun _ -> dispatch <| JoinRoom roomIdInput)
                         ] [
                             str "Submit"
                         ]
@@ -254,6 +225,6 @@ let roomIdPage (data : RoomIdPageData) (dispatch : Msg -> unit) =
 let view (model : Model) (dispatch : Msg -> unit) =
     match model.ActivePage with
     | LandingPage -> landingPage model dispatch
-    | UsernamePage data -> usernamePage data dispatch
+    | UsernamePage errorMessageOpt -> usernamePage model.NameInput errorMessageOpt dispatch
     | Lobby room -> lobby room dispatch
-    | RoomIdPage data -> roomIdPage data dispatch
+    | RoomIdPage errorMessageOpt -> roomIdPage model.RoomIdInput errorMessageOpt dispatch
