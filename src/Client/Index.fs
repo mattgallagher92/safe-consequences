@@ -3,24 +3,18 @@ module Index
 open Elmish
 open Fable.Remoting.Client
 open Shared
+
 type Page =
     | LandingPage
-    | UsernamePage of errorMessageOpt:string option
+    | UsernamePage
     | Lobby of Room
-    | RoomIdPage of errorMessageOpt:string option
+    | RoomIdPage
 
-module Page =
-
-    let SetError msg =
-        function
-        | LandingPage -> LandingPage
-        | UsernamePage _ -> UsernamePage <| Some msg
-        | Lobby room -> Lobby room
-        | RoomIdPage _ -> RoomIdPage <| Some msg
 type Model =
     { User: User
       ActivePage: Page
       NameInput: string
+      NameInputErrorOpt: string option
       RoomIdInput: string }
 
 type Msg =
@@ -43,13 +37,14 @@ let init () : Model * Cmd<Msg> =
         { User = User.create ()
           ActivePage = LandingPage
           NameInput = ""
+          NameInputErrorOpt = None
           RoomIdInput = "" }
     model, Cmd.none
 
 let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
     match msg with
     | StartCreatingRoom ->
-        { model with ActivePage = UsernamePage None }, Cmd.none
+        { model with ActivePage = UsernamePage }, Cmd.none
     | SetNameInput value ->
         { model with NameInput = value }, Cmd.none
     | SubmitName (name, msgForNamedUser) ->
@@ -64,14 +59,14 @@ let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
             let cmd = Cmd.ofMsg <| msgForNamedUser user
             newModel, cmd
         | Anonymous _ ->
-            { newModel with ActivePage = Page.SetError "You must enter a name" newModel.ActivePage }, Cmd.none
+            { newModel with NameInputErrorOpt = Some "You must enter a name" }, Cmd.none
     | CreateRoom user ->
         let cmd = Cmd.OfAsync.perform consequencesApi.createRoom user RoomCreated
         model, cmd
     | RoomCreated room ->
         { model with ActivePage = Lobby room }, Cmd.none
     | StartJoiningRoom ->
-        { model with ActivePage = RoomIdPage None }, Cmd.none
+        { model with ActivePage = RoomIdPage }, Cmd.none
     | SetRoomIdInput value ->
         { model with RoomIdInput = value }, Cmd.none
     | JoinRoom roomdId -> failwith "TODO"
@@ -194,7 +189,7 @@ let roomIdPage roomIdInput errorMessageOpt (dispatch : Msg -> unit) =
                 [ str "Which room do you want to join?" ]
             Box.box' [ ] [
                 Field.div [ ] [
-                    Label.label [ ] [ str "RoomId" ]
+                    Label.label [ ] [ str "Room ID" ]
                     Control.div [ ] [
                         Input.text [
                             match errorMessageOpt with
@@ -225,6 +220,6 @@ let roomIdPage roomIdInput errorMessageOpt (dispatch : Msg -> unit) =
 let view (model : Model) (dispatch : Msg -> unit) =
     match model.ActivePage with
     | LandingPage -> landingPage model dispatch
-    | UsernamePage errorMessageOpt -> usernamePage model.NameInput errorMessageOpt dispatch
+    | UsernamePage -> usernamePage model.NameInput model.NameInputErrorOpt dispatch
     | Lobby room -> lobby room dispatch
-    | RoomIdPage errorMessageOpt -> roomIdPage model.RoomIdInput errorMessageOpt dispatch
+    | RoomIdPage -> roomIdPage model.RoomIdInput None dispatch
