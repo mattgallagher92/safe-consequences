@@ -48,18 +48,15 @@ let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
     | SetNameInput value ->
         { model with NameInput = value }, Cmd.none
     | SubmitName (name, msgForNamedUser) ->
-        let u =
-            match name with
-            | "" -> User.unassignName model.User
-            | s -> Named <| User.assignName s model.User
-        let newModel = { model with User = u }
-
-        match newModel.User with
-        | Named user ->
-            let cmd = Cmd.ofMsg <| msgForNamedUser user
-            newModel, cmd
-        | Anonymous _ ->
-            { newModel with NameInputErrorOpt = Some "You must enter a name" }, Cmd.none
+        match name with
+        | "" ->
+            { model with User = User.unassignName model.User
+                         NameInputErrorOpt = Some "You must enter a name" },
+            Cmd.none
+        | s ->
+            let namedUser = User.assignName s model.User
+            { model with User = Named namedUser },
+            Cmd.ofMsg <| msgForNamedUser namedUser
     | CreateRoom user ->
         let cmd = Cmd.OfAsync.perform consequencesApi.createRoom user RoomCreated
         model, cmd
