@@ -35,21 +35,11 @@ type Room =
     { Id: RoomId
       Owner: NamedUser }
 
-type Todo =
-    { Id : Guid
-      Description : string }
-
-module Todo =
-    let isValid (description: string) =
-        String.IsNullOrWhiteSpace description |> not
-
-    let create (description: string) =
-        { Id = Guid.NewGuid()
-          Description = description }
 
 module Route =
     let builder typeName methodName =
         sprintf "/api/%s/%s" typeName methodName
 
 type IConsequencesApi =
-    { createRoom: NamedUser -> Async<Room> }
+    { createRoom: NamedUser -> Async<Room>
+      validateRoomId: string -> Async<RoomId option> }

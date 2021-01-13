@@ -7,17 +7,20 @@ open Saturn
 open Shared
 open System
 
+// TODO: periodically purge inactive rooms.
 type Storage () =
-    let todos = ResizeArray<_>()
 
-    member __.GetTodos () =
-        List.ofSeq todos
+    let rooms = ResizeArray<_>()
 
-    member __.AddTodo (todo: Todo) =
-        if Todo.isValid todo.Description then
-            todos.Add todo
-            Ok ()
-        else Error "Invalid todo"
+    member __.GetRooms () =
+        List.ofSeq rooms
+
+    member __.TryGetRoomById roomId =
+        __.GetRooms ()
+        |> List.tryFind (fun r -> r.Id = roomId)
+
+    member __.AddRoom (room: Room) =
+        rooms.Add room
 
 let storage = Storage()
 
@@ -25,18 +28,33 @@ module Room =
 
     let private rnd = Random ()
 
+    // Can't be in Shared.fs - implementation not supported by Fable.
     let private randomLetter () =
         rnd.Next (0, 26)
         |> (+) <| int 'a'
+        // Not supported by Fable.
         |> Char.ConvertFromUtf32
 
-    let create owner =
+    // TODO: make sure room ID is unique.
+    let private generateUniqueRoomId () =
         let rl = randomLetter
-        { Id = rl () + rl () + rl () + rl () |> RoomId
-          Owner = owner }
+        rl () + rl () + rl () + rl () |> RoomId
+
+    let create owner =
+        let room =
+            { Id = generateUniqueRoomId ()
+              Owner = owner}
+
+        storage.AddRoom room
+        room
+
+    let validateIdString s =
+        storage.TryGetRoomById (RoomId s)
+        |> Option.map (fun r -> r.Id)
 
 let consequencesApi =
-    { createRoom = fun owner -> async { return Room.create owner } }
+    { createRoom = fun owner -> async { return Room.create owner }
+      validateRoomId = fun s -> async { return Room.validateIdString s } }
 
 let webApp =
     Remoting.createApi()
