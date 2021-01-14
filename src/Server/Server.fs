@@ -35,10 +35,22 @@ module Room =
         // Not supported by Fable.
         |> Char.ConvertFromUtf32
 
-    // TODO: make sure room ID is unique.
     let private generateUniqueRoomId () =
-        let rl = randomLetter
-        rl () + rl () + rl () + rl () |> RoomId
+        let generate () =
+            let rl = randomLetter
+            rl () + rl () + rl () + rl () |> RoomId
+
+        let alreadyExists roomId =
+            storage.TryGetRoomById roomId
+            |> Option.map (fun _ -> true)
+            |> Option.defaultValue false
+
+        let mutable candidate = generate ()
+
+        while alreadyExists candidate do
+            candidate <- generate ()
+
+        candidate
 
     let create owner =
         let room =
