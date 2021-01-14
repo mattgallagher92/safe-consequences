@@ -76,7 +76,7 @@ let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
             let action = fun _ -> failwith "Not yet implemented."
             { model with ActivePage = UsernamePage action }, Cmd.none
         | None ->
-            let error = sprintf "\"%s\" is not a valid Room ID" model.RoomIdInput
+            let error = sprintf "Room \"%s\" does not exist" model.RoomIdInput
             { model with RoomIdInputErrorOpt = Some error }, Cmd.none
 
 open Fable.React
