@@ -22,6 +22,11 @@ type Storage () =
     member __.AddRoom (room: Room) =
         rooms.Add room
 
+    member __.UpdateRoom roomId room =
+        let i = rooms.FindIndex (fun r -> r.Id = roomId)
+        rooms.RemoveAt i
+        rooms.Add room
+
 let storage = Storage()
 
 module Room =
@@ -55,18 +60,46 @@ module Room =
     let create owner =
         let room =
             { Id = generateUniqueRoomId ()
-              Owner = owner}
+              Owner = owner
+              OtherPlayers = [] }
 
         storage.AddRoom room
         room
-
     let validateIdString s =
         storage.TryGetRoomById (RoomId s)
         |> Option.map (fun r -> r.Id)
 
+    let private addToRoom room (user : NamedUser) =
+        match Room.tryGetPlayerByUserId user.Id room with
+        | Some _ ->
+            let (RoomId rid) = room.Id
+            let (UserId uid) = user.Id
+            sprintf "%s (user %s) is already in room %s"
+                user.Name (string uid) rid
+            |> Error
+        | None ->
+            Ok { room with OtherPlayers = user :: room.OtherPlayers }
+
+    let join roomId (user : NamedUser) =
+        match storage.TryGetRoomById roomId with
+        | None ->
+            let (RoomId rid) = roomId
+            Error <| sprintf "No room with ID %s exists" rid
+        | Some room ->
+            // TODO: this is Result.tee. I tried installing
+            // FsToolkit.ErrorHandling, but encountered some difficulties.
+            // Revisit soon.
+            match addToRoom room user with
+            | Error msg ->
+                Error msg
+            | Ok newRoom ->
+                storage.UpdateRoom roomId newRoom
+                Ok newRoom
+
 let consequencesApi =
     { createRoom = fun owner -> async { return Room.create owner }
-      validateRoomId = fun s -> async { return Room.validateIdString s } }
+      validateRoomId = fun s -> async { return Room.validateIdString s }
+      joinRoom = fun (roomId, user) -> async { return Room.join roomId user } }
 
 let webApp =
     Remoting.createApi()

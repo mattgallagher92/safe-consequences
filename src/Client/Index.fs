@@ -14,6 +14,8 @@ type Msg =
     | SetRoomIdInput of roomId:string
     | SubmitRoomId of roomId:string
     | HandleRoomIdValidation of roomIdOpt:RoomId option
+    | JoinRoom of roomId:RoomId * user:NamedUser
+    | HandleJoinRoomResult of Result<Room, string>
 
 type Page =
     | LandingPage
@@ -72,12 +74,22 @@ let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
         model, Cmd.OfAsync.perform consequencesApi.validateRoomId s HandleRoomIdValidation
     | HandleRoomIdValidation roomIdOpt ->
         match roomIdOpt with
-        | Some _ ->
-            let action = fun _ -> failwith "Not yet implemented."
+        | Some roomId ->
+            let action = fun u -> JoinRoom (roomId, u)
             { model with ActivePage = UsernamePage action }, Cmd.none
         | None ->
             let error = sprintf "Room \"%s\" does not exist" model.RoomIdInput
             { model with RoomIdInputErrorOpt = Some error }, Cmd.none
+    | JoinRoom (roomId, user) ->
+        model, Cmd.OfAsync.perform consequencesApi.joinRoom (roomId, user) HandleJoinRoomResult
+    | HandleJoinRoomResult result ->
+        match result with
+        | Error msg ->
+            { model with RoomIdInputErrorOpt = Some msg
+                         ActivePage = RoomIdPage },
+            Cmd.none
+        | Ok room ->
+            { model with ActivePage = Lobby room }, Cmd.none
 
 open Fable.React
 open Fable.React.Props
@@ -178,9 +190,8 @@ let lobby (room : Room) (dispatch : Msg -> unit) =
                     str "Players"
                 ]
                 Content.content [ ] [
-                    ol [ ] [
-                        li [ ] [ str <| room.Owner.Name ]
-                    ]
+                    ol [ ]
+                        (Room.players room |> List.map (fun p -> li [ ] [ str p.Name ]))
                 ]
             ]
         ]

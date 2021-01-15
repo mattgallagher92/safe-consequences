@@ -33,7 +33,17 @@ module RoomId =
 
 type Room =
     { Id: RoomId
-      Owner: NamedUser }
+      Owner: NamedUser
+      OtherPlayers: NamedUser list }
+
+module Room =
+
+    // Use List.rev so that this list is shown in order players joined.
+    let players room = room.Owner :: List.rev room.OtherPlayers
+
+    let tryGetPlayerByUserId userId room =
+        room.OtherPlayers
+        |> List.tryFind (fun (u : NamedUser) -> u.Id = userId)
 
 module Route =
     let builder typeName methodName =
@@ -41,4 +51,5 @@ module Route =
 
 type IConsequencesApi =
     { createRoom: NamedUser -> Async<Room>
-      validateRoomId: string -> Async<RoomId option> }
+      validateRoomId: string -> Async<RoomId option>
+      joinRoom: RoomId * NamedUser -> Async<Result<Room, string>> }
