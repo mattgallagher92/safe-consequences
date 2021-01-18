@@ -7,7 +7,6 @@ open Saturn
 open Shared
 open System
 
-// TODO: periodically purge inactive rooms.
 type Storage () =
 
     let rooms = ResizeArray<_>()
@@ -86,9 +85,6 @@ module Room =
             let (RoomId rid) = roomId
             Error <| sprintf "No room with ID %s exists" rid
         | Some room ->
-            // TODO: this is Result.tee. I tried installing
-            // FsToolkit.ErrorHandling, but encountered some difficulties.
-            // Revisit soon.
             match addToRoom room user with
             | Error msg ->
                 Error msg
