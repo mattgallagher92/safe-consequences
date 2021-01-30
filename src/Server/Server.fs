@@ -28,6 +28,13 @@ type Storage () =
 
 let storage = Storage()
 
+module UserId =
+
+    // On server because cannot be compiled by Fable.
+    let tryParse (s : string) =
+        let g = ref Guid.Empty
+        if Guid.TryParse (s, g) then Some (UserId !g) else None
+
 module Room =
 
     let private rnd = Random ()
@@ -64,6 +71,7 @@ module Room =
 
         storage.AddRoom room
         room
+
     let validateIdString s =
         storage.TryGetRoomById (RoomId s)
         |> Option.map (fun r -> r.Id)
@@ -92,10 +100,31 @@ module Room =
                 storage.UpdateRoom roomId newRoom
                 Ok newRoom
 
+    let reconnect roomIdStr userIdStr =
+        let roomId = RoomId roomIdStr
+
+        match UserId.tryParse userIdStr with
+        | Some userId ->
+            match storage.TryGetRoomById roomId with
+            | None ->
+                let (RoomId rid) = roomId
+                Error <| sprintf "No room with ID %s exists." rid
+            | Some room ->
+                match Room.tryGetPlayerByUserId userId room with
+                | None ->
+                    let (RoomId rid) = room.Id
+                    let (UserId uid) = userId
+                    Error <| sprintf "User %s was never in room %s." (string uid) rid
+                | Some user ->
+                    Ok (room, user)
+        | None ->
+            Error <| sprintf "%s is not a valid user ID." userIdStr
+
 let consequencesApi =
     { createRoom = fun owner -> async { return Room.create owner }
       validateRoomId = fun s -> async { return Room.validateIdString s }
-      joinRoom = fun (roomId, user) -> async { return Room.join roomId user } }
+      joinRoom = fun (roomId, user) -> async { return Room.join roomId user }
+      reconnect = fun (roomIdStr, userIdStr) -> async { return Room.reconnect roomIdStr userIdStr } }
 
 let webApp =
     Remoting.createApi()

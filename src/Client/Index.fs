@@ -16,6 +16,8 @@ type Msg =
     | HandleRoomIdValidation of roomIdOpt:RoomId option
     | JoinRoom of roomId:RoomId * user:NamedUser
     | HandleJoinRoomResult of Result<Room, string>
+    | Reconnect of roomIdStr:string * userIdStr:string
+    | HandleReconnectResult of Result<Room * NamedUser, string>
 
 type Page =
     | LandingPage
@@ -23,35 +25,80 @@ type Page =
     | Lobby of Room
     | RoomIdPage
 
+type LobbyQuery =
+    { RoomIdStr: string
+      UserIdStr: string }
+
+type Route =
+    | Query of LobbyQuery
+    | Other
+
+    static member FromParams roomIdStrOpt userIdStrOpt =
+        match roomIdStrOpt, userIdStrOpt with
+        | Some r, Some u -> Query { RoomIdStr = r; UserIdStr = u }
+        | _ -> Other
+
 type Model =
     { User: User
       ActivePage: Page
+      Route: Route
       NameInput: string
       NameInputErrorOpt: string option
       RoomIdInput: string
-      RoomIdInputErrorOpt: string option }
+      RoomIdInputErrorOpt: string option
+      ReconnectErrorOpt: string option }
 
 let consequencesApi =
     Remoting.createApi ()
     |> Remoting.withRouteBuilder Route.builder
     |> Remoting.buildProxy<IConsequencesApi>
 
-let init () : Model * Cmd<Msg> =
+let cmdFor =
+    function
+    | Some (Query data) -> Cmd.ofMsg <| Reconnect (data.RoomIdStr, data.UserIdStr)
+    | Some _ -> Cmd.none
+    | None -> Navigation.Navigation.modifyUrl "#"
+
+let init initialRouteOpt : Model * Cmd<Msg> =
     let model =
         { User = User.create ()
           ActivePage = LandingPage
+          Route = initialRouteOpt |> Option.defaultValue Other
           NameInput = ""
           NameInputErrorOpt = None
           RoomIdInput = ""
-          RoomIdInputErrorOpt = None }
-    model, Cmd.none
+          RoomIdInputErrorOpt = None
+          ReconnectErrorOpt = None }
+
+    model, cmdFor initialRouteOpt
+
+let urlUpdate routeOpt model =
+    let model' =
+        match routeOpt with
+        | Some route -> { model with Route = route }
+        | None -> model
+
+    model', cmdFor routeOpt
+
+let lobbyRouteStr model room =
+    let ridStr = RoomId.value room.Id
+    let uidStr =
+        model.User
+        |> User.userId
+        |> UserId.value
+        |> string
+
+    sprintf "#lobby?roomId=%s&userId=%s" ridStr uidStr
 
 let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
     match msg with
+
     | StartCreatingRoom ->
         { model with ActivePage = UsernamePage CreateRoom }, Cmd.none
+
     | SetNameInput value ->
         { model with NameInput = value }, Cmd.none
+
     | SubmitName (name, followUpAction) ->
         match name with
         | "" ->
@@ -62,16 +109,23 @@ let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
             let namedUser = User.assignName s model.User
             { model with User = Named namedUser },
                 Cmd.ofMsg <| followUpAction namedUser
+
     | CreateRoom user ->
         model, Cmd.OfAsync.perform consequencesApi.createRoom user RoomCreated
+
     | RoomCreated room ->
-        { model with ActivePage = Lobby room }, Cmd.none
+        let cmd = Navigation.Navigation.newUrl <| lobbyRouteStr model room
+        { model with ActivePage = Lobby room }, cmd
+
     | StartJoiningRoom ->
         { model with ActivePage = RoomIdPage }, Cmd.none
+
     | SetRoomIdInput value ->
         { model with RoomIdInput = value }, Cmd.none
+
     | SubmitRoomId s ->
         model, Cmd.OfAsync.perform consequencesApi.validateRoomId s HandleRoomIdValidation
+
     | HandleRoomIdValidation roomIdOpt ->
         match roomIdOpt with
         | Some roomId ->
@@ -80,8 +134,10 @@ let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
         | None ->
             let error = sprintf "Room \"%s\" does not exist" model.RoomIdInput
             { model with RoomIdInputErrorOpt = Some error }, Cmd.none
+
     | JoinRoom (roomId, user) ->
         model, Cmd.OfAsync.perform consequencesApi.joinRoom (roomId, user) HandleJoinRoomResult
+
     | HandleJoinRoomResult result ->
         match result with
         | Error msg ->
@@ -89,7 +145,19 @@ let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
                          ActivePage = RoomIdPage },
             Cmd.none
         | Ok room ->
-            { model with ActivePage = Lobby room }, Cmd.none
+            let cmd = Navigation.Navigation.newUrl <| lobbyRouteStr model room
+            { model with ActivePage = Lobby room }, cmd
+
+    | Reconnect (rid, uid) ->
+        model, Cmd.OfAsync.perform consequencesApi.reconnect (rid, uid) HandleReconnectResult
+
+    | HandleReconnectResult result ->
+        match result with
+        | Error msg ->
+            let cmd = Navigation.Navigation.modifyUrl "#"
+            { model with ActivePage = LandingPage; ReconnectErrorOpt = Some msg; Route = Other }, cmd
+        | Ok (room, user) ->
+            { model with ActivePage = Lobby room; User = Named user }, Cmd.none
 
 open Fable.React
 open Fable.React.Props
@@ -133,6 +201,9 @@ let landingPage (model : Model) (dispatch : Msg -> unit) =
                         ]
                     ]
                 ]
+                match model.ReconnectErrorOpt with
+                | Some msg -> Help.help [ Help.Option.Color IsDanger ] [ str msg ]
+                | None -> ()
             ]
         ]
     ]

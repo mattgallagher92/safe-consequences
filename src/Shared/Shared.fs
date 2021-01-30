@@ -4,6 +4,10 @@ open System
 
 type UserId = UserId of Guid
 
+module UserId =
+
+    let value (UserId guid) = guid
+
 type NamedUser =
     { Id: UserId
       Name: string }
@@ -42,7 +46,8 @@ module Room =
     let players room = room.Owner :: List.rev room.OtherPlayers
 
     let tryGetPlayerByUserId userId room =
-        room.OtherPlayers
+        room
+        |> players
         |> List.tryFind (fun (u : NamedUser) -> u.Id = userId)
 
 module Route =
@@ -52,4 +57,5 @@ module Route =
 type IConsequencesApi =
     { createRoom: NamedUser -> Async<Room>
       validateRoomId: string -> Async<RoomId option>
-      joinRoom: RoomId * NamedUser -> Async<Result<Room, string>> }
+      joinRoom: RoomId * NamedUser -> Async<Result<Room, string>>
+      reconnect: string * string -> Async<Result<Room * NamedUser, string>> }
