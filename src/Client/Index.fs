@@ -18,6 +18,8 @@ type Msg =
     | HandleJoinRoomResult of Result<Room, string>
     | Reconnect of roomIdStr:string * userIdStr:string
     | HandleReconnectResult of Result<Room * NamedUser, string>
+    | StartGame of roomId:RoomId
+    | HandleStartGameResult of Result<Room, string>
 
 type Page =
     | LandingPage
@@ -46,7 +48,8 @@ type Model =
       NameInputErrorOpt: string option
       RoomIdInput: string
       RoomIdInputErrorOpt: string option
-      ReconnectErrorOpt: string option }
+      ReconnectErrorOpt: string option
+      StartGameErrorOpt: string option }
 
 let consequencesApi =
     Remoting.createApi ()
@@ -68,7 +71,8 @@ let init initialRouteOpt : Model * Cmd<Msg> =
           NameInputErrorOpt = None
           RoomIdInput = ""
           RoomIdInputErrorOpt = None
-          ReconnectErrorOpt = None }
+          ReconnectErrorOpt = None
+          StartGameErrorOpt = None }
 
     model, cmdFor initialRouteOpt
 
@@ -92,7 +96,6 @@ let lobbyRouteStr model room =
 
 let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
     match msg with
-
     | StartCreatingRoom ->
         { model with ActivePage = UsernamePage CreateRoom }, Cmd.none
 
@@ -159,22 +162,24 @@ let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
         | Ok (room, user) ->
             { model with ActivePage = Lobby room; User = Named user }, Cmd.none
 
+    | StartGame rid ->
+        model, Cmd.OfAsync.perform consequencesApi.startGame rid HandleStartGameResult
+
+    | HandleStartGameResult result ->
+        match result with
+        | Error msg ->
+            { model with StartGameErrorOpt = Some msg }, Cmd.none
+        | Ok room ->
+            model, Cmd.none
+
 open Fable.React
-open Fable.React.Props
 open Fulma
 
-let navBrand =
-    Navbar.Brand.div [ ] [
-        Navbar.Item.a [
-            Navbar.Item.Props [ Href "https://safe-stack.github.io/" ]
-            Navbar.Item.IsActive true
-        ] [
-            img [
-                Src "/favicon.png"
-                Alt "Logo"
-            ]
-        ]
-    ]
+let errorHelpForWithModifiers modifiers msgOpt =
+    let msg = Option.defaultValue "" msgOpt
+    Help.help (Help.Option.Color IsDanger :: [ Help.Modifiers modifiers ]) [ str msg ]
+
+let errorHelpFor = errorHelpForWithModifiers []
 
 let landingPage (model : Model) (dispatch : Msg -> unit) =
     Container.container [ ] [
@@ -201,9 +206,7 @@ let landingPage (model : Model) (dispatch : Msg -> unit) =
                         ]
                     ]
                 ]
-                match model.ReconnectErrorOpt with
-                | Some msg -> Help.help [ Help.Option.Color IsDanger ] [ str msg ]
-                | None -> ()
+                errorHelpFor model.ReconnectErrorOpt
             ]
         ]
     ]
@@ -229,9 +232,7 @@ let usernamePage submitAction model (dispatch : Msg -> unit) =
                             Input.OnChange (fun x -> SetNameInput x.Value |> dispatch)
                         ]
                     ]
-                    match model.NameInputErrorOpt with
-                    | Some msg -> Help.help [ Help.Option.Color IsDanger ] [ str msg ]
-                    | None -> ()
+                    errorHelpFor model.NameInputErrorOpt
                 ]
                 Field.div [ ] [
                     Control.p [ ] [
@@ -247,7 +248,7 @@ let usernamePage submitAction model (dispatch : Msg -> unit) =
         ]
     ]
 
-let lobby (room : Room) (dispatch : Msg -> unit) =
+let lobby room model dispatch =
     Container.container [ ] [
         Column.column [
             Column.Width (Screen.All, Column.Is6)
@@ -264,6 +265,20 @@ let lobby (room : Room) (dispatch : Msg -> unit) =
                     ol [ ]
                         (Room.players room |> List.map (fun p -> li [ ] [ str p.Name ]))
                 ]
+                errorHelpForWithModifiers [ Modifier.Spacing (Spacing.MarginBottom, Spacing.Is3) ] model.StartGameErrorOpt
+                if User.equal model.User (Named room.Owner) then
+                    Field.div [ ] [
+                        Control.p [ ] [
+                            Button.a [
+                                Button.Color IsPrimary
+                                Button.OnClick (fun _ -> dispatch <| StartGame room.Id)
+                            ] [
+                                str "Start game"
+                            ]
+                        ]
+                    ]
+                else ()
+
             ]
         ]
     ]
@@ -289,9 +304,7 @@ let roomIdPage model (dispatch : Msg -> unit) =
                             Input.OnChange (fun x -> SetRoomIdInput x.Value |> dispatch)
                         ]
                     ]
-                    match model.RoomIdInputErrorOpt  with
-                    | Some msg -> Help.help [ Help.Option.Color IsDanger ] [ str msg ]
-                    | None -> ()
+                    errorHelpFor model.RoomIdInputErrorOpt
                 ]
                 Field.div [ ] [
                     Control.p [ ] [
@@ -311,5 +324,5 @@ let view (model : Model) (dispatch : Msg -> unit) =
     match model.ActivePage with
     | LandingPage -> landingPage model dispatch
     | UsernamePage submitAction -> usernamePage submitAction model dispatch
-    | Lobby room -> lobby room dispatch
+    | Lobby room -> lobby room model dispatch
     | RoomIdPage -> roomIdPage model dispatch

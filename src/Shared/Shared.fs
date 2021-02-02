@@ -26,8 +26,9 @@ module User =
         { Id = userId user
           Name = name }
 
-    let unassignName user =
-        Anonymous <| userId user
+    let unassignName user = Anonymous <| userId user
+
+    let equal u1 u2 = userId u1 = userId u2
 
 type RoomId = RoomId of string
 
@@ -58,4 +59,5 @@ type IConsequencesApi =
     { createRoom: NamedUser -> Async<Room>
       validateRoomId: string -> Async<RoomId option>
       joinRoom: RoomId * NamedUser -> Async<Result<Room, string>>
-      reconnect: string * string -> Async<Result<Room * NamedUser, string>> }
+      reconnect: string * string -> Async<Result<Room * NamedUser, string>>
+      startGame: RoomId -> Async<Result<Room, string>> }

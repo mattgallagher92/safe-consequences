@@ -120,11 +120,15 @@ module Room =
         | None ->
             Error <| sprintf "%s is not a valid user ID." userIdStr
 
+    let startGame rid =
+        Error "startGame is not yet implemented"
+
 let consequencesApi =
     { createRoom = fun owner -> async { return Room.create owner }
       validateRoomId = fun s -> async { return Room.validateIdString s }
       joinRoom = fun (roomId, user) -> async { return Room.join roomId user }
-      reconnect = fun (roomIdStr, userIdStr) -> async { return Room.reconnect roomIdStr userIdStr } }
+      reconnect = fun (roomIdStr, userIdStr) -> async { return Room.reconnect roomIdStr userIdStr }
+      startGame = fun rid -> async { return Room.startGame rid } }
 
 let webApp =
     Remoting.createApi()
