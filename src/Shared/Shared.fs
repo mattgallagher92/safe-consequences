@@ -4,6 +4,10 @@ open System
 
 type UserId = UserId of Guid
 
+module UserId =
+
+    let value (UserId guid) = guid
+
 type NamedUser =
     { Id: UserId
       Name: string }
@@ -33,23 +37,25 @@ module RoomId =
 
 type Room =
     { Id: RoomId
-      Owner: NamedUser }
+      Owner: NamedUser
+      OtherPlayers: NamedUser list }
 
-type Todo =
-    { Id : Guid
-      Description : string }
+module Room =
 
-module Todo =
-    let isValid (description: string) =
-        String.IsNullOrWhiteSpace description |> not
+    // Use List.rev so that this list is shown in order players joined.
+    let players room = room.Owner :: List.rev room.OtherPlayers
 
-    let create (description: string) =
-        { Id = Guid.NewGuid()
-          Description = description }
+    let tryGetPlayerByUserId userId room =
+        room
+        |> players
+        |> List.tryFind (fun (u : NamedUser) -> u.Id = userId)
 
 module Route =
     let builder typeName methodName =
         sprintf "/api/%s/%s" typeName methodName
 
 type IConsequencesApi =
-    { createRoom: NamedUser -> Async<Room> }
+    { createRoom: NamedUser -> Async<Room>
+      validateRoomId: string -> Async<RoomId option>
+      joinRoom: RoomId * NamedUser -> Async<Result<Room, string>>
+      reconnect: string * string -> Async<Result<Room * NamedUser, string>> }
