@@ -121,7 +121,9 @@ module Room =
             Error <| sprintf "%s is not a valid user ID." userIdStr
 
     let startGame rid =
-        Error "startGame is not yet implemented"
+        match storage.TryGetRoomById rid with
+        | None -> Error <| sprintf "Room %s does not exist." (RoomId.value rid)
+        | Some room -> Ok <| Game.init room
 
 let consequencesApi =
     { createRoom = fun owner -> async { return Room.create owner }

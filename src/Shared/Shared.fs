@@ -51,6 +51,43 @@ module Room =
         |> players
         |> List.tryFind (fun (u : NamedUser) -> u.Id = userId)
 
+type Response =
+    { HisDescription: string
+      HisName: string
+      HerDescription: string
+      HerName: string
+      WhereTheyMet: string
+      WhatHeGaveHer: string
+      WhatHeSaidToHer: string
+      WhatSheSaidToHim: string
+      TheConsequence: string
+      WhatTheWorldSaid: string }
+
+module Response =
+
+    let empty =
+        { HisDescription = ""
+          HisName = ""
+          HerDescription = ""
+          HerName = ""
+          WhereTheyMet = ""
+          WhatHeGaveHer = ""
+          WhatHeSaidToHer = ""
+          WhatSheSaidToHim = ""
+          TheConsequence = ""
+          WhatTheWorldSaid = "" }
+
+type Responses = Map<NamedUser, Response>
+
+type GameState = Room * Responses
+
+type Game =
+    | WaitingForResponses of GameState
+
+module Game =
+
+    let init room = WaitingForResponses (room, Map.empty)
+
 module Route =
     let builder typeName methodName =
         sprintf "/api/%s/%s" typeName methodName
@@ -60,4 +97,4 @@ type IConsequencesApi =
       validateRoomId: string -> Async<RoomId option>
       joinRoom: RoomId * NamedUser -> Async<Result<Room, string>>
       reconnect: string * string -> Async<Result<Room * NamedUser, string>>
-      startGame: RoomId -> Async<Result<Room, string>> }
+      startGame: RoomId -> Async<Result<Game, string>> }
