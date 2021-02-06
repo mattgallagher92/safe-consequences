@@ -30,27 +30,6 @@ module User =
 
     let equal u1 u2 = userId u1 = userId u2
 
-type RoomId = RoomId of string
-
-module RoomId =
-
-    let value (RoomId id) = id
-
-type Room =
-    { Id: RoomId
-      Owner: NamedUser
-      OtherPlayers: NamedUser list }
-
-module Room =
-
-    // Use List.rev so that this list is shown in order players joined.
-    let players room = room.Owner :: List.rev room.OtherPlayers
-
-    let tryGetPlayerByUserId userId room =
-        room
-        |> players
-        |> List.tryFind (fun (u : NamedUser) -> u.Id = userId)
-
 type Response =
     { HisDescription: string
       HisName: string
@@ -79,14 +58,40 @@ module Response =
 
 type Responses = Map<NamedUser, Response>
 
-type GameState = Room * Responses
-
 type Game =
-    | WaitingForResponses of GameState
+    | NotStarted
+    | WaitingForResponses of Responses
+
+type RoomId = RoomId of string
+
+module RoomId =
+
+    let value (RoomId id) = id
+
+type Room =
+    { Id: RoomId
+      Owner: NamedUser
+      OtherPlayers: NamedUser list
+      Game: Game }
+
+module Room =
+
+    // Use List.rev so that this list is shown in order players joined.
+    let players room = room.Owner :: List.rev room.OtherPlayers
+
+    let tryGetPlayerByUserId userId room =
+        room
+        |> players
+        |> List.tryFind (fun (u : NamedUser) -> u.Id = userId)
 
 module Game =
 
-    let init room = WaitingForResponses (room, Map.empty)
+    let init () = NotStarted
+
+    let start g =
+        match g with
+        | NotStarted -> Ok <| WaitingForResponses Map.empty
+        | _ -> Error <| sprintf "The game has already started"
 
 module Route =
     let builder typeName methodName =
@@ -97,4 +102,4 @@ type IConsequencesApi =
       validateRoomId: string -> Async<RoomId option>
       joinRoom: RoomId * NamedUser -> Async<Result<Room, string>>
       reconnect: string * string -> Async<Result<Room * NamedUser, string>>
-      startGame: RoomId -> Async<Result<Game, string>> }
+      startGame: RoomId -> Async<Result<Room, string>> }

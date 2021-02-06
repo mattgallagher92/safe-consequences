@@ -67,7 +67,8 @@ module Room =
         let room =
             { Id = generateUniqueRoomId ()
               Owner = owner
-              OtherPlayers = [] }
+              OtherPlayers = []
+              Game = Game.init () }
 
         storage.AddRoom room
         room
@@ -122,8 +123,18 @@ module Room =
 
     let startGame rid =
         match storage.TryGetRoomById rid with
-        | None -> Error <| sprintf "Room %s does not exist." (RoomId.value rid)
-        | Some room -> Ok <| Game.init room
+        | None ->
+            Error <| sprintf "Room %s does not exist." (RoomId.value rid)
+        | Some room ->
+            match Game.start room.Game with
+            | Error msg ->
+                Error msg
+            | Ok game ->
+                let newRoom = { room with Game = game }
+
+                storage.UpdateRoom room.Id newRoom
+
+                Ok newRoom
 
 let consequencesApi =
     { createRoom = fun owner -> async { return Room.create owner }

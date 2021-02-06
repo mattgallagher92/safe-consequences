@@ -31,15 +31,16 @@ type Msg =
     | Reconnect of roomIdStr:string * userIdStr:string
     | HandleReconnectResult of Result<Room * NamedUser, string>
     | StartGame of roomId:RoomId
-    | HandleStartGameResult of Result<Game, string>
+    | HandleStartGameResult of Result<Room, string>
     | ResponseMsg of ResponseMsg
 
 type Page =
+    | BlankPage
     | LandingPage
     | UsernamePage of submitAction: (NamedUser -> Msg)
     | Lobby of Room
     | RoomIdPage
-    | ResponsePage of Game
+    | ResponsePage of Room
 
 type LobbyQuery =
     { RoomIdStr: string
@@ -78,9 +79,14 @@ let cmdFor =
     | None -> Navigation.Navigation.modifyUrl "#"
 
 let init initialRouteOpt : Model * Cmd<Msg> =
+    let initialPage =
+        match initialRouteOpt with
+        | Some (Query _) -> BlankPage
+        | _ -> LandingPage
+
     let model =
         { User = User.create ()
-          ActivePage = LandingPage
+          ActivePage = initialPage
           Route = initialRouteOpt |> Option.defaultValue Other
           NameInput = ""
           NameInputErrorOpt = None
@@ -189,7 +195,11 @@ let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
             let cmd = Navigation.Navigation.modifyUrl "#"
             { model with ActivePage = LandingPage; ReconnectErrorOpt = Some msg; Route = Other }, cmd
         | Ok (room, user) ->
-            { model with ActivePage = Lobby room; User = Named user }, Cmd.none
+            match room.Game with
+            | NotStarted -> { model with ActivePage = Lobby room; User = Named user }, Cmd.none
+            // TODO: update model.Responses based on user's responses
+            | WaitingForResponses _ -> { model with ActivePage = ResponsePage room; User = Named user }, Cmd.none
+
 
     | StartGame rid ->
         model, Cmd.OfAsync.perform consequencesApi.startGame rid HandleStartGameResult
@@ -197,7 +207,7 @@ let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
     | HandleStartGameResult result ->
         match result with
         | Error msg -> { model with StartGameErrorOpt = Some msg }, Cmd.none
-        | Ok game -> { model with ActivePage = ResponsePage game }, Cmd.none
+        | Ok room -> { model with ActivePage = ResponsePage room }, Cmd.none
 
     | ResponseMsg responseMsg -> updateResponse responseMsg model
 
@@ -387,6 +397,7 @@ let responsePage game model dispatch =
 
 let view (model : Model) (dispatch : Msg -> unit) =
     match model.ActivePage with
+    | BlankPage -> div [] []
     | LandingPage -> landingPage model dispatch
     | UsernamePage submitAction -> usernamePage submitAction model dispatch
     | Lobby room -> lobby room model dispatch
