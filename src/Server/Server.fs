@@ -136,12 +136,43 @@ module Room =
 
                 Ok newRoom
 
+    let submitResponse rid uid response =
+        match storage.TryGetRoomById rid with
+        | None ->
+            let errorMsg = sprintf "Room %s does not exist." (RoomId.value rid)
+            Error { ResponseError.empty with GeneralErrorOpt = Some errorMsg }
+        | Some room ->
+            match Room.tryGetPlayerByUserId uid room with
+            | None ->
+                let errorMsg = sprintf "User %s is not in room %s." (UserId.asString uid) (RoomId.value rid)
+                Error { ResponseError.empty with GeneralErrorOpt = Some errorMsg }
+            | Some u ->
+                let validate invalidMsg s = if String.IsNullOrWhiteSpace s then Some invalidMsg else None
+                let responseError =
+                    { ResponseError.empty with
+                          HisDescriptionErrorOpt = validate "Enter a description" response.HisDescription
+                          HisNameErrorOpt = validate "Enter a name" response.HisName
+                          HerDescriptionErrorOpt = validate "Enter a description" response.HerDescription
+                          HerNameErrorOpt = validate "Enter a name" response.HerName
+                          WhereTheyMetErrorOpt = validate "Enter a place" response.WhereTheyMet
+                          WhatHeGaveHerErrorOpt = validate "Enter an object" response.WhatHeGaveHer
+                          WhatHeSaidToHerErrorOpt = validate "Enter a phrase or sentence" response.WhatHeSaidToHer
+                          WhatSheSaidToHimErrorOpt = validate "Enter a phrase or sentence" response.WhatSheSaidToHim
+                          TheConsequenceErrorOpt = validate "Enter a consequence" response.TheConsequence
+                          WhatTheWorldSaidErrorOpt = validate "Enter a phrase or sentence" response.WhatTheWorldSaid
+                          GeneralErrorOpt = None }
+
+                if responseError = ResponseError.empty
+                then Ok room
+                else Error responseError
+
 let consequencesApi =
     { createRoom = fun owner -> async { return Room.create owner }
       validateRoomId = fun s -> async { return Room.validateIdString s }
       joinRoom = fun (roomId, user) -> async { return Room.join roomId user }
       reconnect = fun (roomIdStr, userIdStr) -> async { return Room.reconnect roomIdStr userIdStr }
-      startGame = fun rid -> async { return Room.startGame rid } }
+      startGame = fun rid -> async { return Room.startGame rid }
+      submitResponse = fun (rid, uid, response) -> async { return Room.submitResponse rid uid response } }
 
 let webApp =
     Remoting.createApi()

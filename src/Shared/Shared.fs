@@ -8,6 +8,8 @@ module UserId =
 
     let value (UserId guid) = guid
 
+    let asString = value >> string
+
 type NamedUser =
     { Id: UserId
       Name: string }
@@ -56,6 +58,34 @@ module Response =
           TheConsequence = ""
           WhatTheWorldSaid = "" }
 
+type ResponseError =
+    { HisDescriptionErrorOpt: string option
+      HisNameErrorOpt: string option
+      HerDescriptionErrorOpt: string option
+      HerNameErrorOpt: string option
+      WhereTheyMetErrorOpt: string option
+      WhatHeGaveHerErrorOpt: string option
+      WhatHeSaidToHerErrorOpt: string option
+      WhatSheSaidToHimErrorOpt: string option
+      TheConsequenceErrorOpt: string option
+      WhatTheWorldSaidErrorOpt: string option
+      GeneralErrorOpt: string option }
+
+module ResponseError =
+
+    let empty =
+        { HisDescriptionErrorOpt = None
+          HisNameErrorOpt = None
+          HerDescriptionErrorOpt = None
+          HerNameErrorOpt = None
+          WhereTheyMetErrorOpt = None
+          WhatHeGaveHerErrorOpt = None
+          WhatHeSaidToHerErrorOpt = None
+          WhatSheSaidToHimErrorOpt = None
+          TheConsequenceErrorOpt = None
+          WhatTheWorldSaidErrorOpt = None
+          GeneralErrorOpt = None }
+
 type Responses = Map<NamedUser, Response>
 
 type Game =
@@ -102,4 +132,5 @@ type IConsequencesApi =
       validateRoomId: string -> Async<RoomId option>
       joinRoom: RoomId * NamedUser -> Async<Result<Room, string>>
       reconnect: string * string -> Async<Result<Room * NamedUser, string>>
-      startGame: RoomId -> Async<Result<Room, string>> }
+      startGame: RoomId -> Async<Result<Room, string>>
+      submitResponse: RoomId * UserId * Response -> Async<Result<Room, ResponseError>> }

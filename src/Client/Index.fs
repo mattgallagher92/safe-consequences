@@ -33,6 +33,8 @@ type Msg =
     | StartGame of roomId:RoomId
     | HandleStartGameResult of Result<Room, string>
     | ResponseMsg of ResponseMsg
+    | SubmitResponse of RoomId
+    | HandleResponseSubmittedResult of Result<Room, ResponseError>
 
 type Page =
     | BlankPage
@@ -65,7 +67,8 @@ type Model =
       RoomIdInputErrorOpt: string option
       ReconnectErrorOpt: string option
       StartGameErrorOpt: string option
-      Response: Response }
+      Response: Response
+      ResponseError: ResponseError }
 
 let consequencesApi =
     Remoting.createApi ()
@@ -94,7 +97,8 @@ let init initialRouteOpt : Model * Cmd<Msg> =
           RoomIdInputErrorOpt = None
           ReconnectErrorOpt = None
           StartGameErrorOpt = None
-          Response = Response.empty }
+          Response = Response.empty
+          ResponseError = ResponseError.empty }
 
     model, cmdFor initialRouteOpt
 
@@ -111,8 +115,7 @@ let lobbyRouteStr model room =
     let uidStr =
         model.User
         |> User.userId
-        |> UserId.value
-        |> string
+        |> UserId.asString
 
     sprintf "#lobby?roomId=%s&userId=%s" ridStr uidStr
 
@@ -210,6 +213,17 @@ let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
         | Ok room -> { model with ActivePage = ResponsePage room }, Cmd.none
 
     | ResponseMsg responseMsg -> updateResponse responseMsg model
+
+    | SubmitResponse rid ->
+        let uid = User.userId model.User
+
+        model,
+        Cmd.OfAsync.perform consequencesApi.submitResponse (rid, uid, model.Response) HandleResponseSubmittedResult
+
+    | HandleResponseSubmittedResult result ->
+        match result with
+        | Ok room -> { model with ResponseError = ResponseError.empty } , Cmd.none
+        | Error responseError -> { model with ResponseError = responseError }, Cmd.none
 
 open Fable.React
 open Fulma
@@ -350,7 +364,7 @@ let roomIdPage model (dispatch : Msg -> unit) =
         ]
     ]
 
-let responsePage game model dispatch =
+let responsePage room model dispatch =
     Container.container [ ] [
         Column.column [
             Column.Width (Screen.All, Column.Is6)
@@ -360,32 +374,31 @@ let responsePage game model dispatch =
                 [ Heading.Modifiers [ Modifier.TextAlignment (Screen.All, TextAlignment.Centered) ] ]
                 [ str "Enter your responses" ]
             Box.box' [ ] [
-                formField "His description" None model.Response.HisDescription
+                formField "His description" model.ResponseError.HisDescriptionErrorOpt model.Response.HisDescription
                     (fun x -> dispatch <| (ResponseMsg << HisDescription) x.Value)
-                formField "His name" None model.Response.HisName
+                formField "His name" model.ResponseError.HisNameErrorOpt model.Response.HisName
                     (fun x -> dispatch <| (ResponseMsg << HisName) x.Value)
-                formField "Her description" None model.Response.HerDescription
+                formField "Her description" model.ResponseError.HerDescriptionErrorOpt model.Response.HerDescription
                     (fun x -> dispatch <| (ResponseMsg << HerDescription) x.Value)
-                formField "Her name" None model.Response.HerName
+                formField "Her name" model.ResponseError.HerNameErrorOpt model.Response.HerName
                     (fun x -> dispatch <| (ResponseMsg << HerName) x.Value)
-                formField "Where they met" None model.Response.WhereTheyMet
+                formField "Where they met" model.ResponseError.WhereTheyMetErrorOpt model.Response.WhereTheyMet
                     (fun x -> dispatch <| (ResponseMsg << WhereTheyMet) x.Value)
-                formField "What he gave her" None model.Response.WhatHeGaveHer
+                formField "What he gave her" model.ResponseError.WhatHeGaveHerErrorOpt model.Response.WhatHeGaveHer
                     (fun x -> dispatch <| (ResponseMsg << WhatHeGaveHer) x.Value)
-                formField "What he said to her" None model.Response.WhatHeSaidToHer
+                formField "What he said to her" model.ResponseError.WhatHeSaidToHerErrorOpt model.Response.WhatHeSaidToHer
                     (fun x -> dispatch <| (ResponseMsg << WhatHeSaidToHer) x.Value)
-                formField "What she said to him" None model.Response.WhatSheSaidToHim
+                formField "What she said to him" model.ResponseError.WhatSheSaidToHimErrorOpt model.Response.WhatSheSaidToHim
                     (fun x -> dispatch <| (ResponseMsg << WhatSheSaidToHim) x.Value)
-                formField "The consequence" None model.Response.TheConsequence
+                formField "The consequence" model.ResponseError.TheConsequenceErrorOpt model.Response.TheConsequence
                     (fun x -> dispatch <| (ResponseMsg << TheConsequence) x.Value)
-                formField "What the world said" None model.Response.WhatTheWorldSaid
+                formField "What the world said" model.ResponseError.WhatTheWorldSaidErrorOpt model.Response.WhatTheWorldSaid
                     (fun x -> dispatch <| (ResponseMsg << WhatTheWorldSaid) x.Value)
                 Field.div [ ] [
                     Control.p [ ] [
                         Button.a [
                             Button.Color IsPrimary
-                            // TODO: implement
-                            Button.OnClick ignore
+                            Button.OnClick (fun _ -> dispatch <| SubmitResponse room.Id)
                         ] [
                             str "Submit"
                         ]
@@ -402,4 +415,4 @@ let view (model : Model) (dispatch : Msg -> unit) =
     | UsernamePage submitAction -> usernamePage submitAction model dispatch
     | Lobby room -> lobby room model dispatch
     | RoomIdPage -> roomIdPage model dispatch
-    | ResponsePage game -> responsePage game model dispatch
+    | ResponsePage room -> responsePage room model dispatch
