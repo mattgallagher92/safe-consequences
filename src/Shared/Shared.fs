@@ -26,8 +26,41 @@ module User =
         { Id = userId user
           Name = name }
 
-    let unassignName user =
-        Anonymous <| userId user
+    let unassignName user = Anonymous <| userId user
+
+    let equal u1 u2 = userId u1 = userId u2
+
+type Response =
+    { HisDescription: string
+      HisName: string
+      HerDescription: string
+      HerName: string
+      WhereTheyMet: string
+      WhatHeGaveHer: string
+      WhatHeSaidToHer: string
+      WhatSheSaidToHim: string
+      TheConsequence: string
+      WhatTheWorldSaid: string }
+
+module Response =
+
+    let empty =
+        { HisDescription = ""
+          HisName = ""
+          HerDescription = ""
+          HerName = ""
+          WhereTheyMet = ""
+          WhatHeGaveHer = ""
+          WhatHeSaidToHer = ""
+          WhatSheSaidToHim = ""
+          TheConsequence = ""
+          WhatTheWorldSaid = "" }
+
+type Responses = Map<NamedUser, Response>
+
+type Game =
+    | NotStarted
+    | WaitingForResponses of Responses
 
 type RoomId = RoomId of string
 
@@ -38,7 +71,8 @@ module RoomId =
 type Room =
     { Id: RoomId
       Owner: NamedUser
-      OtherPlayers: NamedUser list }
+      OtherPlayers: NamedUser list
+      Game: Game }
 
 module Room =
 
@@ -50,6 +84,15 @@ module Room =
         |> players
         |> List.tryFind (fun (u : NamedUser) -> u.Id = userId)
 
+module Game =
+
+    let init () = NotStarted
+
+    let start g =
+        match g with
+        | NotStarted -> Ok <| WaitingForResponses Map.empty
+        | _ -> Error <| sprintf "The game has already started"
+
 module Route =
     let builder typeName methodName =
         sprintf "/api/%s/%s" typeName methodName
@@ -58,4 +101,5 @@ type IConsequencesApi =
     { createRoom: NamedUser -> Async<Room>
       validateRoomId: string -> Async<RoomId option>
       joinRoom: RoomId * NamedUser -> Async<Result<Room, string>>
-      reconnect: string * string -> Async<Result<Room * NamedUser, string>> }
+      reconnect: string * string -> Async<Result<Room * NamedUser, string>>
+      startGame: RoomId -> Async<Result<Room, string>> }
