@@ -140,12 +140,12 @@ module Room =
         match storage.TryGetRoomById rid with
         | None ->
             let errorMsg = sprintf "Room %s does not exist." (RoomId.value rid)
-            Error { ResponseError.empty with GeneralErrorOpt = Some errorMsg }
+            Error <| ResponseError.general errorMsg
         | Some room ->
             match Room.tryGetPlayerByUserId uid room with
             | None ->
                 let errorMsg = sprintf "User %s is not in room %s." (UserId.asString uid) (RoomId.value rid)
-                Error { ResponseError.empty with GeneralErrorOpt = Some errorMsg }
+                Error <| ResponseError.general errorMsg
             | Some u ->
                 let validate invalidMsg s = if String.IsNullOrWhiteSpace s then Some invalidMsg else None
                 let responseError =
@@ -162,9 +162,14 @@ module Room =
                           WhatTheWorldSaidErrorOpt = validate "Enter a phrase or sentence" response.WhatTheWorldSaid
                           GeneralErrorOpt = None }
 
-                if responseError = ResponseError.empty
-                then Ok room
-                else Error responseError
+                // TODO: simplify other functions using tee.
+                let tee f result = (match result with Ok x -> f x | Error _ -> ()); result
+
+                if responseError <> ResponseError.empty then Error responseError else
+                    Game.updateResponse room.Game (Room.players room) u response
+                    |> tee (fun g -> storage.UpdateRoom room.Id { room with Game = g })
+                    |> Result.mapError ResponseError.general
+                    |> Result.map (fun g -> { room with Game = g })
 
 let consequencesApi =
     { createRoom = fun owner -> async { return Room.create owner }

@@ -43,6 +43,7 @@ type Page =
     | Lobby of startGameErrorOpt:string option * Room
     | RoomIdPage of roomIdInputErrorOpt:string option
     | ResponsePage of ResponseError * Room
+    | WaitingForOtherPlayersPage of Room
 
 type LobbyQuery =
     { RoomIdStr: string
@@ -188,8 +189,10 @@ let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
             | NotStarted ->
                 { model with ActivePage = Lobby (None, room); User = Named user }, Cmd.none
             // TODO: update model.Responses based on user's responses
-            | WaitingForResponses _ ->
-                { model with ActivePage = ResponsePage (ResponseError.empty, room); User = Named user }, Cmd.none
+            | WaitingForResponses responses | AllResponsesReceived responses ->
+                if Map.containsKey user responses
+                then { model with ActivePage = WaitingForOtherPlayersPage room; User = Named user }, Cmd.none
+                else { model with ActivePage = ResponsePage (ResponseError.empty, room); User = Named user }, Cmd.none
 
 
     | StartGame rid ->
@@ -223,7 +226,8 @@ let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
                 | _ -> failwith "Assumption violated: HandleResponseSubmittedResult is only handled on ResponsePage."
             { model with ActivePage = ResponsePage <| (responseError, room) }, Cmd.none
         | Ok room ->
-            { model with ActivePage = ResponsePage <| (ResponseError.empty, room) } , Cmd.none
+            // TODO: if last player to submit, go to appropriate page.
+            { model with ActivePage = WaitingForOtherPlayersPage room } , Cmd.none
 
 open Fable.React
 open Fulma
@@ -408,6 +412,28 @@ let responsePage responseError room model dispatch =
         ]
     ]
 
+let waitingForOtherPlayersPage room model dispatch =
+    Container.container [ ] [
+        Column.column [
+            Column.Width (Screen.All, Column.Is6)
+            Column.Offset (Screen.All, Column.Is3)
+        ] [
+            Heading.p
+                [ Heading.Modifiers [ Modifier.TextAlignment (Screen.All, TextAlignment.Centered) ] ]
+                [ str "Waiting for other players" ]
+            Box.box' [ ] [
+                Heading.p [ Heading.Is4 ] [ str "Waiting for" ]
+                Content.content [ ] [
+                    ul [ ] (Room.playersWhoHaveNotSubmittedResponses room |> List.map (fun p -> li [ ] [ str p.Name ]))
+                ]
+                Heading.p [ Heading.Is4 ] [ str "Submitted responses" ]
+                Content.content [ ] [
+                    ul [ ] (Room.playersWhoHaveSubmittedResponses room |> List.map (fun p -> li [ ] [ str p.Name ]))
+                ]
+            ]
+        ]
+    ]
+
 let view (model : Model) (dispatch : Msg -> unit) =
     match model.ActivePage with
     | BlankPage -> div [] []
@@ -416,3 +442,4 @@ let view (model : Model) (dispatch : Msg -> unit) =
     | Lobby (startGameErrorOpt, room) -> lobby startGameErrorOpt room model dispatch
     | RoomIdPage roomIdInputErrorOpt -> roomIdPage roomIdInputErrorOpt model dispatch
     | ResponsePage (responseError, room) -> responsePage responseError room model dispatch
+    | WaitingForOtherPlayersPage room -> waitingForOtherPlayersPage room model dispatch

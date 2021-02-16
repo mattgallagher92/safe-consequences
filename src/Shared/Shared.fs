@@ -86,11 +86,33 @@ module ResponseError =
           WhatTheWorldSaidErrorOpt = None
           GeneralErrorOpt = None }
 
+    let general errorMsg  = { empty with GeneralErrorOpt = Some errorMsg }
+
 type Responses = Map<NamedUser, Response>
 
 type Game =
     | NotStarted
     | WaitingForResponses of Responses
+    | AllResponsesReceived of Responses
+
+module Game =
+
+    let init () = NotStarted
+
+    let start g =
+        match g with
+        | NotStarted -> Ok <| WaitingForResponses Map.empty
+        | _ -> Error <| sprintf "The game has already started."
+
+    let updateResponse game allPlayers user response =
+        match game with
+        | WaitingForResponses responses ->
+            let newResponses = Map.add user response responses
+            let haveResponsesFromAllPlayers = allPlayers = (Map.toList responses |> List.map fst)
+            if haveResponsesFromAllPlayers then AllResponsesReceived newResponses else WaitingForResponses newResponses
+            |> Ok
+        | _ ->
+            Error <| sprintf "The game is no longer accepting responses."
 
 type RoomId = RoomId of string
 
@@ -114,14 +136,17 @@ module Room =
         |> players
         |> List.tryFind (fun (u : NamedUser) -> u.Id = userId)
 
-module Game =
+    let playersWhoHaveSubmittedResponses room =
+        match room.Game with
+        | NotStarted -> []
+        | WaitingForResponses rs | AllResponsesReceived rs -> Map.toList rs |> List.map fst
 
-    let init () = NotStarted
+    let playersWhoHaveNotSubmittedResponses room =
+        let all = Set.ofList <| players room
+        let haveSubmitted = Set.ofList <| playersWhoHaveSubmittedResponses room
 
-    let start g =
-        match g with
-        | NotStarted -> Ok <| WaitingForResponses Map.empty
-        | _ -> Error <| sprintf "The game has already started"
+        Set.difference all haveSubmitted
+        |> List.ofSeq
 
 module Route =
     let builder typeName methodName =
