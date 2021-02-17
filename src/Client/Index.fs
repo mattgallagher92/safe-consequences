@@ -188,7 +188,6 @@ let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
             match room.Game with
             | NotStarted ->
                 { model with ActivePage = Lobby (None, room); User = Named user }, Cmd.none
-            // TODO: update model.Responses based on user's responses
             | WaitingForResponses responses | AllResponsesReceived responses ->
                 if Map.containsKey user responses
                 then { model with ActivePage = WaitingForOtherPlayersPage room; User = Named user }, Cmd.none
