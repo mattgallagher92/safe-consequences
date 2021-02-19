@@ -33,14 +33,17 @@ type Msg =
     | StartGame of roomId:RoomId
     | HandleStartGameResult of Result<Room, string>
     | ResponseMsg of ResponseMsg
+    | SubmitResponse of RoomId
+    | HandleResponseSubmittedResult of Result<Room, ResponseError>
 
 type Page =
     | BlankPage
-    | LandingPage
-    | UsernamePage of submitAction: (NamedUser -> Msg)
-    | Lobby of Room
-    | RoomIdPage
-    | ResponsePage of Room
+    | LandingPage of reconnectErrorOpt:string option
+    | UsernamePage of nameInputErrorOpt:string option * submitAction:(NamedUser -> Msg)
+    | Lobby of startGameErrorOpt:string option * Room
+    | RoomIdPage of roomIdInputErrorOpt:string option
+    | ResponsePage of ResponseError * Room
+    | WaitingForOtherPlayersPage of Room
 
 type LobbyQuery =
     { RoomIdStr: string
@@ -60,11 +63,7 @@ type Model =
       ActivePage: Page
       Route: Route
       NameInput: string
-      NameInputErrorOpt: string option
       RoomIdInput: string
-      RoomIdInputErrorOpt: string option
-      ReconnectErrorOpt: string option
-      StartGameErrorOpt: string option
       Response: Response }
 
 let consequencesApi =
@@ -82,18 +81,14 @@ let init initialRouteOpt : Model * Cmd<Msg> =
     let initialPage =
         match initialRouteOpt with
         | Some (Query _) -> BlankPage
-        | _ -> LandingPage
+        | _ -> LandingPage None
 
     let model =
         { User = User.create ()
           ActivePage = initialPage
           Route = initialRouteOpt |> Option.defaultValue Other
           NameInput = ""
-          NameInputErrorOpt = None
           RoomIdInput = ""
-          RoomIdInputErrorOpt = None
-          ReconnectErrorOpt = None
-          StartGameErrorOpt = None
           Response = Response.empty }
 
     model, cmdFor initialRouteOpt
@@ -111,8 +106,7 @@ let lobbyRouteStr model room =
     let uidStr =
         model.User
         |> User.userId
-        |> UserId.value
-        |> string
+        |> UserId.asString
 
     sprintf "#lobby?roomId=%s&userId=%s" ridStr uidStr
 
@@ -132,7 +126,7 @@ let updateResponse (msg: ResponseMsg) (model: Model): Model * Cmd<Msg> =
 let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
     match msg with
     | StartCreatingRoom ->
-        { model with ActivePage = UsernamePage CreateRoom }, Cmd.none
+        { model with ActivePage = UsernamePage (None, CreateRoom) }, Cmd.none
 
     | SetNameInput value ->
         { model with NameInput = value }, Cmd.none
@@ -140,23 +134,21 @@ let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
     | SubmitName (name, followUpAction) ->
         match name with
         | "" ->
-            { model with User = User.unassignName model.User
-                         NameInputErrorOpt = Some "You must enter a name" },
-            Cmd.none
+            let newPage = UsernamePage <| (Some "You must enter a name", followUpAction)
+            { model with User = User.unassignName model.User; ActivePage = newPage }, Cmd.none
         | s ->
             let namedUser = User.assignName s model.User
-            { model with User = Named namedUser },
-                Cmd.ofMsg <| followUpAction namedUser
+            { model with User = Named namedUser }, Cmd.ofMsg <| followUpAction namedUser
 
     | CreateRoom user ->
         model, Cmd.OfAsync.perform consequencesApi.createRoom user RoomCreated
 
     | RoomCreated room ->
         let cmd = Navigation.Navigation.newUrl <| lobbyRouteStr model room
-        { model with ActivePage = Lobby room }, cmd
+        { model with ActivePage = Lobby (None, room) }, cmd
 
     | StartJoiningRoom ->
-        { model with ActivePage = RoomIdPage }, Cmd.none
+        { model with ActivePage = RoomIdPage None }, Cmd.none
 
     | SetRoomIdInput value ->
         { model with RoomIdInput = value }, Cmd.none
@@ -168,10 +160,10 @@ let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
         match roomIdOpt with
         | Some roomId ->
             let action = fun u -> JoinRoom (roomId, u)
-            { model with ActivePage = UsernamePage action }, Cmd.none
+            { model with ActivePage = UsernamePage (None, action) }, Cmd.none
         | None ->
             let error = sprintf "Room \"%s\" does not exist" model.RoomIdInput
-            { model with RoomIdInputErrorOpt = Some error }, Cmd.none
+            { model with ActivePage = RoomIdPage <| Some error }, Cmd.none
 
     | JoinRoom (roomId, user) ->
         model, Cmd.OfAsync.perform consequencesApi.joinRoom (roomId, user) HandleJoinRoomResult
@@ -179,12 +171,10 @@ let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
     | HandleJoinRoomResult result ->
         match result with
         | Error msg ->
-            { model with RoomIdInputErrorOpt = Some msg
-                         ActivePage = RoomIdPage },
-            Cmd.none
+            { model with ActivePage = RoomIdPage <| Some msg }, Cmd.none
         | Ok room ->
             let cmd = Navigation.Navigation.newUrl <| lobbyRouteStr model room
-            { model with ActivePage = Lobby room }, cmd
+            { model with ActivePage = Lobby (None, room) }, cmd
 
     | Reconnect (rid, uid) ->
         model, Cmd.OfAsync.perform consequencesApi.reconnect (rid, uid) HandleReconnectResult
@@ -193,12 +183,15 @@ let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
         match result with
         | Error msg ->
             let cmd = Navigation.Navigation.modifyUrl "#"
-            { model with ActivePage = LandingPage; ReconnectErrorOpt = Some msg; Route = Other }, cmd
+            { model with ActivePage = LandingPage <| Some msg; Route = Other }, cmd
         | Ok (room, user) ->
             match room.Game with
-            | NotStarted -> { model with ActivePage = Lobby room; User = Named user }, Cmd.none
-            // TODO: update model.Responses based on user's responses
-            | WaitingForResponses _ -> { model with ActivePage = ResponsePage room; User = Named user }, Cmd.none
+            | NotStarted ->
+                { model with ActivePage = Lobby (None, room); User = Named user }, Cmd.none
+            | WaitingForResponses responses | AllResponsesReceived responses ->
+                if Map.containsKey user responses
+                then { model with ActivePage = WaitingForOtherPlayersPage room; User = Named user }, Cmd.none
+                else { model with ActivePage = ResponsePage (ResponseError.empty, room); User = Named user }, Cmd.none
 
 
     | StartGame rid ->
@@ -206,10 +199,34 @@ let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
 
     | HandleStartGameResult result ->
         match result with
-        | Error msg -> { model with StartGameErrorOpt = Some msg }, Cmd.none
-        | Ok room -> { model with ActivePage = ResponsePage room }, Cmd.none
+        | Error msg ->
+            let room =
+                match model.ActivePage with
+                | Lobby (_, r) -> r
+                | _ -> failwith "Assumption violated: HandleStartGameResult is only handled in Lobby."
+            { model with ActivePage = Lobby <| (Some msg, room) }, Cmd.none
+        | Ok room ->
+            { model with ActivePage = ResponsePage (ResponseError.empty, room) }, Cmd.none
 
     | ResponseMsg responseMsg -> updateResponse responseMsg model
+
+    | SubmitResponse rid ->
+        let uid = User.userId model.User
+
+        model,
+        Cmd.OfAsync.perform consequencesApi.submitResponse (rid, uid, model.Response) HandleResponseSubmittedResult
+
+    | HandleResponseSubmittedResult result ->
+        match result with
+        | Error responseError ->
+            let room =
+                match model.ActivePage with
+                | ResponsePage (_, r) -> r
+                | _ -> failwith "Assumption violated: HandleResponseSubmittedResult is only handled on ResponsePage."
+            { model with ActivePage = ResponsePage <| (responseError, room) }, Cmd.none
+        | Ok room ->
+            // TODO: if last player to submit, go to appropriate page.
+            { model with ActivePage = WaitingForOtherPlayersPage room } , Cmd.none
 
 open Fable.React
 open Fulma
@@ -235,7 +252,7 @@ let private formField label errorOpt value onChange =
         errorHelpFor errorOpt
     ]
 
-let landingPage (model : Model) (dispatch : Msg -> unit) =
+let landingPage reconnectErrorOpt (model : Model) (dispatch : Msg -> unit) =
     Container.container [ ] [
         Column.column [
             Column.Width (Screen.All, Column.Is6)
@@ -260,12 +277,12 @@ let landingPage (model : Model) (dispatch : Msg -> unit) =
                         ]
                     ]
                 ]
-                errorHelpFor model.ReconnectErrorOpt
+                errorHelpFor reconnectErrorOpt
             ]
         ]
     ]
 
-let usernamePage submitAction model (dispatch : Msg -> unit) =
+let usernamePage nameInputErrorOpt submitAction model (dispatch : Msg -> unit) =
     Container.container [ ] [
         Column.column [
             Column.Width (Screen.All, Column.Is6)
@@ -275,7 +292,7 @@ let usernamePage submitAction model (dispatch : Msg -> unit) =
                 [ Heading.Modifiers [ Modifier.TextAlignment (Screen.All, TextAlignment.Centered) ] ]
                 [ str "What's your name?" ]
             Box.box' [ ] [
-                formField "Name" model.NameInputErrorOpt model.NameInput (fun x -> SetNameInput x.Value |> dispatch)
+                formField "Name" nameInputErrorOpt model.NameInput (fun x -> SetNameInput x.Value |> dispatch)
                 Field.div [ ] [
                     Control.p [ ] [
                         Button.a [
@@ -290,7 +307,7 @@ let usernamePage submitAction model (dispatch : Msg -> unit) =
         ]
     ]
 
-let lobby room model dispatch =
+let lobby startGameErrorOpt room model dispatch =
     Container.container [ ] [
         Column.column [
             Column.Width (Screen.All, Column.Is6)
@@ -307,7 +324,7 @@ let lobby room model dispatch =
                     ol [ ]
                         (Room.players room |> List.map (fun p -> li [ ] [ str p.Name ]))
                 ]
-                errorHelpForWithModifiers [ Modifier.Spacing (Spacing.MarginBottom, Spacing.Is3) ] model.StartGameErrorOpt
+                errorHelpForWithModifiers [ Modifier.Spacing (Spacing.MarginBottom, Spacing.Is3) ] startGameErrorOpt
                 if User.equal model.User (Named room.Owner) then
                     Field.div [ ] [
                         Control.p [ ] [
@@ -325,7 +342,7 @@ let lobby room model dispatch =
         ]
     ]
 
-let roomIdPage model (dispatch : Msg -> unit) =
+let roomIdPage roomIdInputErrorOpt model (dispatch : Msg -> unit) =
     Container.container [ ] [
         Column.column [
             Column.Width (Screen.All, Column.Is6)
@@ -335,7 +352,7 @@ let roomIdPage model (dispatch : Msg -> unit) =
                 [ Heading.Modifiers [ Modifier.TextAlignment (Screen.All, TextAlignment.Centered) ] ]
                 [ str "Which room do you want to join?" ]
             Box.box' [ ] [
-                formField "Room ID" model.RoomIdInputErrorOpt model.RoomIdInput (fun x -> SetRoomIdInput x.Value |> dispatch)
+                formField "Room ID" roomIdInputErrorOpt model.RoomIdInput (fun x -> SetRoomIdInput x.Value |> dispatch)
                 Field.div [ ] [
                     Control.p [ ] [
                         Button.a [
@@ -350,7 +367,7 @@ let roomIdPage model (dispatch : Msg -> unit) =
         ]
     ]
 
-let responsePage game model dispatch =
+let responsePage responseError room model dispatch =
     Container.container [ ] [
         Column.column [
             Column.Width (Screen.All, Column.Is6)
@@ -360,32 +377,31 @@ let responsePage game model dispatch =
                 [ Heading.Modifiers [ Modifier.TextAlignment (Screen.All, TextAlignment.Centered) ] ]
                 [ str "Enter your responses" ]
             Box.box' [ ] [
-                formField "His description" None model.Response.HisDescription
+                formField "His description" responseError.HisDescriptionErrorOpt model.Response.HisDescription
                     (fun x -> dispatch <| (ResponseMsg << HisDescription) x.Value)
-                formField "His name" None model.Response.HisName
+                formField "His name" responseError.HisNameErrorOpt model.Response.HisName
                     (fun x -> dispatch <| (ResponseMsg << HisName) x.Value)
-                formField "Her description" None model.Response.HerDescription
+                formField "Her description" responseError.HerDescriptionErrorOpt model.Response.HerDescription
                     (fun x -> dispatch <| (ResponseMsg << HerDescription) x.Value)
-                formField "Her name" None model.Response.HerName
+                formField "Her name" responseError.HerNameErrorOpt model.Response.HerName
                     (fun x -> dispatch <| (ResponseMsg << HerName) x.Value)
-                formField "Where they met" None model.Response.WhereTheyMet
+                formField "Where they met" responseError.WhereTheyMetErrorOpt model.Response.WhereTheyMet
                     (fun x -> dispatch <| (ResponseMsg << WhereTheyMet) x.Value)
-                formField "What he gave her" None model.Response.WhatHeGaveHer
+                formField "What he gave her" responseError.WhatHeGaveHerErrorOpt model.Response.WhatHeGaveHer
                     (fun x -> dispatch <| (ResponseMsg << WhatHeGaveHer) x.Value)
-                formField "What he said to her" None model.Response.WhatHeSaidToHer
+                formField "What he said to her" responseError.WhatHeSaidToHerErrorOpt model.Response.WhatHeSaidToHer
                     (fun x -> dispatch <| (ResponseMsg << WhatHeSaidToHer) x.Value)
-                formField "What she said to him" None model.Response.WhatSheSaidToHim
+                formField "What she said to him" responseError.WhatSheSaidToHimErrorOpt model.Response.WhatSheSaidToHim
                     (fun x -> dispatch <| (ResponseMsg << WhatSheSaidToHim) x.Value)
-                formField "The consequence" None model.Response.TheConsequence
+                formField "The consequence" responseError.TheConsequenceErrorOpt model.Response.TheConsequence
                     (fun x -> dispatch <| (ResponseMsg << TheConsequence) x.Value)
-                formField "What the world said" None model.Response.WhatTheWorldSaid
+                formField "What the world said" responseError.WhatTheWorldSaidErrorOpt model.Response.WhatTheWorldSaid
                     (fun x -> dispatch <| (ResponseMsg << WhatTheWorldSaid) x.Value)
                 Field.div [ ] [
                     Control.p [ ] [
                         Button.a [
                             Button.Color IsPrimary
-                            // TODO: implement
-                            Button.OnClick ignore
+                            Button.OnClick (fun _ -> dispatch <| SubmitResponse room.Id)
                         ] [
                             str "Submit"
                         ]
@@ -395,11 +411,34 @@ let responsePage game model dispatch =
         ]
     ]
 
+let waitingForOtherPlayersPage room model dispatch =
+    Container.container [ ] [
+        Column.column [
+            Column.Width (Screen.All, Column.Is6)
+            Column.Offset (Screen.All, Column.Is3)
+        ] [
+            Heading.p
+                [ Heading.Modifiers [ Modifier.TextAlignment (Screen.All, TextAlignment.Centered) ] ]
+                [ str "Waiting for other players" ]
+            Box.box' [ ] [
+                Heading.p [ Heading.Is4 ] [ str "Waiting for" ]
+                Content.content [ ] [
+                    ul [ ] (Room.playersWhoHaveNotSubmittedResponses room |> List.map (fun p -> li [ ] [ str p.Name ]))
+                ]
+                Heading.p [ Heading.Is4 ] [ str "Submitted responses" ]
+                Content.content [ ] [
+                    ul [ ] (Room.playersWhoHaveSubmittedResponses room |> List.map (fun p -> li [ ] [ str p.Name ]))
+                ]
+            ]
+        ]
+    ]
+
 let view (model : Model) (dispatch : Msg -> unit) =
     match model.ActivePage with
     | BlankPage -> div [] []
-    | LandingPage -> landingPage model dispatch
-    | UsernamePage submitAction -> usernamePage submitAction model dispatch
-    | Lobby room -> lobby room model dispatch
-    | RoomIdPage -> roomIdPage model dispatch
-    | ResponsePage game -> responsePage game model dispatch
+    | LandingPage reconnectErrorOpt -> landingPage reconnectErrorOpt model dispatch
+    | UsernamePage (nameInputErrorOpt, submitAction) -> usernamePage nameInputErrorOpt submitAction model dispatch
+    | Lobby (startGameErrorOpt, room) -> lobby startGameErrorOpt room model dispatch
+    | RoomIdPage roomIdInputErrorOpt -> roomIdPage roomIdInputErrorOpt model dispatch
+    | ResponsePage (responseError, room) -> responsePage responseError room model dispatch
+    | WaitingForOtherPlayersPage room -> waitingForOtherPlayersPage room model dispatch

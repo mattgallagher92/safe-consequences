@@ -18,6 +18,10 @@ type Storage () =
         __.GetRooms ()
         |> List.tryFind (fun r -> r.Id = roomId)
 
+    member __.GetRoomById roomId =
+        __.TryGetRoomById roomId
+        |> Option.toResult (sprintf "Room %s does not exist." (RoomId.value roomId))
+
     member __.AddRoom (room: Room) =
         rooms.Add room
 
@@ -31,11 +35,13 @@ let storage = Storage()
 module UserId =
 
     // On server because cannot be compiled by Fable.
-    let tryParse (s : string) =
+    let parse (s : string) =
         let g = ref Guid.Empty
-        if Guid.TryParse (s, g) then Some (UserId !g) else None
+        if Guid.TryParse (s, g) then Ok (UserId !g) else Error <| sprintf "%s is not a valid user ID." s
 
 module Room =
+
+    let private result = ResultBuilder()
 
     let private rnd = Random ()
 
@@ -77,71 +83,80 @@ module Room =
         storage.TryGetRoomById (RoomId s)
         |> Option.map (fun r -> r.Id)
 
-    let private addToRoom room (user : NamedUser) =
-        match Room.tryGetPlayerByUserId user.Id room with
-        | Some _ ->
+    let join roomId (user : NamedUser) =
+        let addToRoom (user : NamedUser) room =
             let (RoomId rid) = room.Id
             let (UserId uid) = user.Id
-            sprintf "%s (user %s) is already in room %s"
-                user.Name (string uid) rid
-            |> Error
-        | None ->
-            Ok { room with OtherPlayers = user :: room.OtherPlayers }
 
-    let join roomId (user : NamedUser) =
-        match storage.TryGetRoomById roomId with
-        | None ->
-            let (RoomId rid) = roomId
-            Error <| sprintf "No room with ID %s exists" rid
-        | Some room ->
-            match addToRoom room user with
-            | Error msg ->
-                Error msg
-            | Ok newRoom ->
-                storage.UpdateRoom roomId newRoom
-                Ok newRoom
+            Room.tryGetPlayerByUserId user.Id room
+            |> Option.map (fun user -> Error <| sprintf "%s (user %s) is already in room %s" user.Name (string uid) rid)
+            |> Option.defaultValue (Ok { room with OtherPlayers = user :: room.OtherPlayers })
+
+        storage.GetRoomById roomId
+        |> Result.bind (addToRoom user)
+        |> Result.tee (storage.UpdateRoom roomId)
 
     let reconnect roomIdStr userIdStr =
         let roomId = RoomId roomIdStr
 
-        match UserId.tryParse userIdStr with
-        | Some userId ->
-            match storage.TryGetRoomById roomId with
-            | None ->
-                let (RoomId rid) = roomId
-                Error <| sprintf "No room with ID %s exists." rid
-            | Some room ->
-                match Room.tryGetPlayerByUserId userId room with
-                | None ->
-                    let (RoomId rid) = room.Id
-                    let (UserId uid) = userId
-                    Error <| sprintf "User %s was never in room %s." (string uid) rid
-                | Some user ->
-                    Ok (room, user)
-        | None ->
-            Error <| sprintf "%s is not a valid user ID." userIdStr
+        result {
+            let! userId = UserId.parse userIdStr
+            let! room = storage.GetRoomById roomId
+            let! user = Room.getPlayerByUserId userId room
+
+            return (room, user)
+        }
 
     let startGame rid =
-        match storage.TryGetRoomById rid with
-        | None ->
-            Error <| sprintf "Room %s does not exist." (RoomId.value rid)
-        | Some room ->
-            match Game.start room.Game with
-            | Error msg ->
-                Error msg
-            | Ok game ->
-                let newRoom = { room with Game = game }
+        let startGameAndUpdateStorage room =
+            Game.start room.Game
+            |> Result.map (fun game -> { room with Game = game })
+            |> Result.tee (fun room -> storage.UpdateRoom room.Id room)
 
-                storage.UpdateRoom room.Id newRoom
+        storage.GetRoomById rid
+        |> Result.bind startGameAndUpdateStorage
 
-                Ok newRoom
+    let private validateResponse response =
+        let validateField invalidMsg s = if String.IsNullOrWhiteSpace s then Some invalidMsg else None
+
+        let error =
+            { ResponseError.empty with
+                  HisDescriptionErrorOpt = validateField "Enter a description" response.HisDescription
+                  HisNameErrorOpt = validateField "Enter a name" response.HisName
+                  HerDescriptionErrorOpt = validateField "Enter a description" response.HerDescription
+                  HerNameErrorOpt = validateField "Enter a name" response.HerName
+                  WhereTheyMetErrorOpt = validateField "Enter a place" response.WhereTheyMet
+                  WhatHeGaveHerErrorOpt = validateField "Enter an object" response.WhatHeGaveHer
+                  WhatHeSaidToHerErrorOpt = validateField "Enter a phrase or sentence" response.WhatHeSaidToHer
+                  WhatSheSaidToHimErrorOpt = validateField "Enter a phrase or sentence" response.WhatSheSaidToHim
+                  TheConsequenceErrorOpt = validateField "Enter a consequence" response.TheConsequence
+                  WhatTheWorldSaidErrorOpt = validateField "Enter a phrase or sentence" response.WhatTheWorldSaid
+                  GeneralErrorOpt = None }
+
+        if error = ResponseError.empty then Ok response else Error error
+
+    let submitResponse rid uid response =
+        let updateResponseAndUpdateStorage room user response =
+            Game.updateResponse room.Game (Room.players room) user response
+            |> Result.map (fun g -> { room with Game = g })
+            |> Result.mapError ResponseError.general
+            |> Result.tee (fun r -> storage.UpdateRoom room.Id r)
+
+        result {
+            let! room = storage.GetRoomById rid |> Result.mapError ResponseError.general
+            let! user = Room.getPlayerByUserId uid room |> Result.mapError ResponseError.general
+            let! response = validateResponse response
+
+            return! updateResponseAndUpdateStorage room user response
+        }
 
 let consequencesApi =
     { createRoom = fun owner -> async { return Room.create owner }
       validateRoomId = fun s -> async { return Room.validateIdString s }
       joinRoom = fun (roomId, user) -> async { return Room.join roomId user }
       reconnect = fun (roomIdStr, userIdStr) -> async { return Room.reconnect roomIdStr userIdStr }
-      startGame = fun rid -> async { return Room.startGame rid } }
+      startGame = fun rid -> async { return Room.startGame rid }
+      submitResponse = fun (rid, uid, response) -> async { return Room.submitResponse rid uid response } }
 
 let webApp =
     Remoting.createApi()
