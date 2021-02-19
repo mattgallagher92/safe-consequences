@@ -15,6 +15,11 @@ module Result =
         match result with Ok x -> f x | Error _ -> ()
         result
 
+type ResultBuilder() =
+    member __.Bind(x, f) = Result.bind f x
+    member __.Return x = Ok x
+    member __.ReturnFrom x = x
+
 type UserId = UserId of Guid
 
 module UserId =

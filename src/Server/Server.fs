@@ -41,6 +41,8 @@ module UserId =
 
 module Room =
 
+    let private result = ResultBuilder()
+
     let private rnd = Random ()
 
     // Can't be in Shared.fs - implementation not supported by Fable.
@@ -97,12 +99,13 @@ module Room =
     let reconnect roomIdStr userIdStr =
         let roomId = RoomId roomIdStr
 
-        UserId.parse userIdStr
-        |> Result.bind (fun userId ->
-            storage.GetRoomById roomId
-            |> Result.bind (fun room ->
-                Room.getPlayerByUserId userId room
-                |> Result.map (fun user -> (room, user))))
+        result {
+            let! userId = UserId.parse userIdStr
+            let! room = storage.GetRoomById roomId
+            let! user = Room.getPlayerByUserId userId room
+
+            return (room, user)
+        }
 
     let startGame rid =
         let startGameAndUpdateStorage room =
@@ -133,21 +136,19 @@ module Room =
         if error = ResponseError.empty then Ok response else Error error
 
     let submitResponse rid uid response =
-        let getRoomById roomId = storage.GetRoomById roomId |> Result.mapError ResponseError.general
-        let getPlayerByUserId userId room = Room.getPlayerByUserId userId room |> Result.mapError ResponseError.general
-
         let updateResponseAndUpdateStorage room user response =
             Game.updateResponse room.Game (Room.players room) user response
             |> Result.map (fun g -> { room with Game = g })
             |> Result.mapError ResponseError.general
             |> Result.tee (fun r -> storage.UpdateRoom room.Id r)
 
-        getRoomById rid
-        |> Result.bind (fun room ->
-            getPlayerByUserId uid room
-            |> Result.bind (fun user ->
-                validateResponse response
-                |> Result.bind (updateResponseAndUpdateStorage room user)))
+        result {
+            let! room = storage.GetRoomById rid |> Result.mapError ResponseError.general
+            let! user = Room.getPlayerByUserId uid room |> Result.mapError ResponseError.general
+            let! response = validateResponse response
+
+            return! updateResponseAndUpdateStorage room user response
+        }
 
 let consequencesApi =
     { createRoom = fun owner -> async { return Room.create owner }
