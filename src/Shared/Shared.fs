@@ -149,6 +149,10 @@ module Room =
         |> players
         |> List.tryFind (fun (u : NamedUser) -> u.Id = userId)
 
+    let getPlayerByUserId userId room =
+        tryGetPlayerByUserId userId room
+        |> Option.toResult (sprintf "User %s is not in room %s." (UserId.asString userId) (RoomId.value room.Id))
+
     let playersWhoHaveSubmittedResponses room =
         match room.Game with
         | NotStarted -> []

@@ -18,6 +18,10 @@ type Storage () =
         __.GetRooms ()
         |> List.tryFind (fun r -> r.Id = roomId)
 
+    member __.GetRoomById roomId =
+        __.TryGetRoomById roomId
+        |> Option.toResult (sprintf "Room %s does not exist." (RoomId.value roomId))
+
     member __.AddRoom (room: Room) =
         rooms.Add room
 
@@ -31,9 +35,9 @@ let storage = Storage()
 module UserId =
 
     // On server because cannot be compiled by Fable.
-    let tryParse (s : string) =
+    let parse (s : string) =
         let g = ref Guid.Empty
-        if Guid.TryParse (s, g) then Some (UserId !g) else None
+        if Guid.TryParse (s, g) then Ok (UserId !g) else Error <| sprintf "%s is not a valid user ID." s
 
 module Room =
 
@@ -77,37 +81,27 @@ module Room =
         storage.TryGetRoomById (RoomId s)
         |> Option.map (fun r -> r.Id)
 
-    let private addToRoom (user : NamedUser) room =
-        let (RoomId rid) = room.Id
-        let (UserId uid) = user.Id
-
-        Room.tryGetPlayerByUserId user.Id room
-        |> Option.map (fun user -> Error <| sprintf "%s (user %s) is already in room %s" user.Name (string uid) rid)
-        |> Option.defaultValue (Ok { room with OtherPlayers = user :: room.OtherPlayers })
-
     let join roomId (user : NamedUser) =
-        let (RoomId rid) = roomId
+        let addToRoom (user : NamedUser) room =
+            let (RoomId rid) = room.Id
+            let (UserId uid) = user.Id
 
-        storage.TryGetRoomById roomId
-        |> Option.toResult (sprintf "No room with ID %s exists" rid)
+            Room.tryGetPlayerByUserId user.Id room
+            |> Option.map (fun user -> Error <| sprintf "%s (user %s) is already in room %s" user.Name (string uid) rid)
+            |> Option.defaultValue (Ok { room with OtherPlayers = user :: room.OtherPlayers })
+
+        storage.GetRoomById roomId
         |> Result.bind (addToRoom user)
         |> Result.tee (storage.UpdateRoom roomId)
 
     let reconnect roomIdStr userIdStr =
         let roomId = RoomId roomIdStr
 
-        let msgIfInvalidUserId = sprintf "%s is not a valid user ID." userIdStr
-        let msgIfInvalidRoomId = let (RoomId rid) = roomId in sprintf "No room with ID %s exists." rid
-        let msgIfUserNotInRoom userId = let (RoomId rid) = roomId in let (UserId uid) = userId in sprintf "User %s was never in room %s." (string uid) rid
-
-        UserId.tryParse userIdStr
-        |> Option.toResult msgIfInvalidUserId
+        UserId.parse userIdStr
         |> Result.bind (fun userId ->
-            storage.TryGetRoomById roomId
-            |> Option.toResult msgIfInvalidRoomId
+            storage.GetRoomById roomId
             |> Result.bind (fun room ->
-                Room.tryGetPlayerByUserId userId room
-                |> Option.toResult (msgIfUserNotInRoom userId)
+                Room.getPlayerByUserId userId room
                 |> Result.map (fun user -> (room, user))))
 
     let startGame rid =
@@ -116,8 +110,7 @@ module Room =
             |> Result.map (fun game -> { room with Game = game })
             |> Result.tee (fun room -> storage.UpdateRoom room.Id room)
 
-        storage.TryGetRoomById rid
-        |> Option.toResult (sprintf "Room %s does not exist." (RoomId.value rid))
+        storage.GetRoomById rid
         |> Result.bind startGameAndUpdateStorage
 
     let private validateResponse response =
@@ -140,9 +133,8 @@ module Room =
         if error = ResponseError.empty then Ok response else Error error
 
     let submitResponse rid uid response =
-        let roomDoesNotExistError = sprintf "Room %s does not exist." (RoomId.value rid) |> ResponseError.general
-        let userNotInRoomError =
-            sprintf "User %s is not in room %s." (UserId.asString uid) (RoomId.value rid) |> ResponseError.general
+        let getRoomById roomId = storage.GetRoomById roomId |> Result.mapError ResponseError.general
+        let getPlayerByUserId userId room = Room.getPlayerByUserId userId room |> Result.mapError ResponseError.general
 
         let updateResponseAndUpdateStorage room user response =
             Game.updateResponse room.Game (Room.players room) user response
@@ -150,11 +142,9 @@ module Room =
             |> Result.mapError ResponseError.general
             |> Result.tee (fun r -> storage.UpdateRoom room.Id r)
 
-        storage.TryGetRoomById rid
-        |> Option.toResult roomDoesNotExistError
+        getRoomById rid
         |> Result.bind (fun room ->
-            Room.tryGetPlayerByUserId uid room
-            |> Option.toResult userNotInRoomError
+            getPlayerByUserId uid room
             |> Result.bind (fun user ->
                 validateResponse response
                 |> Result.bind (updateResponseAndUpdateStorage room user)))
