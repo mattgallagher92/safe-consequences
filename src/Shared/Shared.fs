@@ -2,6 +2,19 @@ namespace Shared
 
 open System
 
+module Option =
+
+    let toResult errorIfNone opt =
+        match opt with Some x -> Ok x | None -> Error errorIfNone
+
+module Result =
+
+    let bind f result = match result with Ok x -> f x | Error e -> Error e
+
+    let tee f result =
+        match result with Ok x -> f x | Error _ -> ()
+        result
+
 type UserId = UserId of Guid
 
 module UserId =
