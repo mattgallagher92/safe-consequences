@@ -34,7 +34,7 @@ type Msg =
     | HandleStartGameResult of Result<Room, string>
     | ResponseMsg of ResponseMsg
     | SubmitResponse of RoomId
-    | HandleResponseSubmittedResult of Result<Room, ResponseError>
+    | HandleResponseSubmittedResult of Result<Room, Response.Error>
 
 type Page =
     | BlankPage
@@ -42,7 +42,7 @@ type Page =
     | UsernamePage of nameInputErrorOpt:string option * submitAction:(NamedUser -> Msg)
     | Lobby of startGameErrorOpt:string option * Room
     | RoomIdPage of roomIdInputErrorOpt:string option
-    | ResponsePage of ResponseError * Room
+    | ResponsePage of Response.Error * Room
     | WaitingForOtherPlayersPage of Room
 
 type LobbyQuery =
@@ -191,7 +191,7 @@ let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
             | WaitingForResponses responses | AllResponsesReceived responses ->
                 if Map.containsKey user responses
                 then { model with ActivePage = WaitingForOtherPlayersPage room; User = Named user }, Cmd.none
-                else { model with ActivePage = ResponsePage (ResponseError.empty, room); User = Named user }, Cmd.none
+                else { model with ActivePage = ResponsePage (Response.Error.empty, room); User = Named user }, Cmd.none
 
 
     | StartGame rid ->
@@ -206,7 +206,7 @@ let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
                 | _ -> failwith "Assumption violated: HandleStartGameResult is only handled in Lobby."
             { model with ActivePage = Lobby <| (Some msg, room) }, Cmd.none
         | Ok room ->
-            { model with ActivePage = ResponsePage (ResponseError.empty, room) }, Cmd.none
+            { model with ActivePage = ResponsePage (Response.Error.empty, room) }, Cmd.none
 
     | ResponseMsg responseMsg -> updateResponse responseMsg model
 
@@ -366,6 +366,8 @@ let roomIdPage roomIdInputErrorOpt model (dispatch : Msg -> unit) =
             ]
         ]
     ]
+
+open Shared.Response
 
 let responsePage responseError room model dispatch =
     Container.container [ ] [

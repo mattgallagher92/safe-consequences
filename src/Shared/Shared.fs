@@ -2,6 +2,10 @@ namespace Shared
 
 open System
 
+module Utils =
+
+    let tee f x = f x; x
+
 module Option =
 
     let toResult errorIfNone opt =
@@ -76,35 +80,54 @@ module Response =
           TheConsequence = ""
           WhatTheWorldSaid = "" }
 
-type ResponseError =
-    { HisDescriptionErrorOpt: string option
-      HisNameErrorOpt: string option
-      HerDescriptionErrorOpt: string option
-      HerNameErrorOpt: string option
-      WhereTheyMetErrorOpt: string option
-      WhatHeGaveHerErrorOpt: string option
-      WhatHeSaidToHerErrorOpt: string option
-      WhatSheSaidToHimErrorOpt: string option
-      TheConsequenceErrorOpt: string option
-      WhatTheWorldSaidErrorOpt: string option
-      GeneralErrorOpt: string option }
+    type Error =
+        { HisDescriptionErrorOpt: string option
+          HisNameErrorOpt: string option
+          HerDescriptionErrorOpt: string option
+          HerNameErrorOpt: string option
+          WhereTheyMetErrorOpt: string option
+          WhatHeGaveHerErrorOpt: string option
+          WhatHeSaidToHerErrorOpt: string option
+          WhatSheSaidToHimErrorOpt: string option
+          TheConsequenceErrorOpt: string option
+          WhatTheWorldSaidErrorOpt: string option
+          GeneralErrorOpt: string option }
 
-module ResponseError =
+    module Error =
 
-    let empty =
-        { HisDescriptionErrorOpt = None
-          HisNameErrorOpt = None
-          HerDescriptionErrorOpt = None
-          HerNameErrorOpt = None
-          WhereTheyMetErrorOpt = None
-          WhatHeGaveHerErrorOpt = None
-          WhatHeSaidToHerErrorOpt = None
-          WhatSheSaidToHimErrorOpt = None
-          TheConsequenceErrorOpt = None
-          WhatTheWorldSaidErrorOpt = None
-          GeneralErrorOpt = None }
+        let empty =
+            { HisDescriptionErrorOpt = None
+              HisNameErrorOpt = None
+              HerDescriptionErrorOpt = None
+              HerNameErrorOpt = None
+              WhereTheyMetErrorOpt = None
+              WhatHeGaveHerErrorOpt = None
+              WhatHeSaidToHerErrorOpt = None
+              WhatSheSaidToHimErrorOpt = None
+              TheConsequenceErrorOpt = None
+              WhatTheWorldSaidErrorOpt = None
+              GeneralErrorOpt = None }
 
-    let general errorMsg  = { empty with GeneralErrorOpt = Some errorMsg }
+        let general errorMsg  = { empty with GeneralErrorOpt = Some errorMsg }
+
+    let validate response =
+        let validateField invalidMsg s = if String.IsNullOrWhiteSpace s then Some invalidMsg else None
+
+        let error =
+            { Error.empty with
+                  HisDescriptionErrorOpt = validateField "Enter a description" response.HisDescription
+                  HisNameErrorOpt = validateField "Enter a name" response.HisName
+                  HerDescriptionErrorOpt = validateField "Enter a description" response.HerDescription
+                  HerNameErrorOpt = validateField "Enter a name" response.HerName
+                  WhereTheyMetErrorOpt = validateField "Enter a place" response.WhereTheyMet
+                  WhatHeGaveHerErrorOpt = validateField "Enter an object" response.WhatHeGaveHer
+                  WhatHeSaidToHerErrorOpt = validateField "Enter a phrase or sentence" response.WhatHeSaidToHer
+                  WhatSheSaidToHimErrorOpt = validateField "Enter a phrase or sentence" response.WhatSheSaidToHim
+                  TheConsequenceErrorOpt = validateField "Enter a consequence" response.TheConsequence
+                  WhatTheWorldSaidErrorOpt = validateField "Enter a phrase or sentence" response.WhatTheWorldSaid
+                  GeneralErrorOpt = None }
+
+        if error = Error.empty then Ok response else Error error
 
 type Responses = Map<NamedUser, Response>
 
@@ -146,6 +169,12 @@ type Room =
 
 module Room =
 
+    let create roomId owner =
+        { Id = roomId
+          Owner = owner
+          OtherPlayers = []
+          Game = Game.init () }
+
     // Use List.rev so that this list is shown in order players joined.
     let players room = room.Owner :: List.rev room.OtherPlayers
 
@@ -157,6 +186,27 @@ module Room =
     let getPlayerByUserId userId room =
         tryGetPlayerByUserId userId room
         |> Option.toResult (sprintf "User %s is not in room %s." (UserId.asString userId) (RoomId.value room.Id))
+
+    let add (user : NamedUser) room =
+        let (RoomId rid) = room.Id
+        let (UserId uid) = user.Id
+
+        tryGetPlayerByUserId user.Id room
+        |> Option.map (fun user -> Error <| sprintf "%s (user %s) is already in room %s" user.Name (string uid) rid)
+        |> Option.defaultValue (Ok { room with OtherPlayers = user :: room.OtherPlayers })
+
+    let startGame room =
+        Game.start room.Game
+        |> Result.map (fun game -> { room with Game = game })
+
+    let updateResponse room user response =
+        let update =
+            Game.updateResponse room.Game (players room) user
+            >> Result.mapError Response.Error.general
+
+        Response.validate response
+        |> Result.bind update
+        |> Result.map (fun g -> { room with Game = g })
 
     let playersWhoHaveSubmittedResponses room =
         match room.Game with
@@ -180,4 +230,4 @@ type IConsequencesApi =
       joinRoom: RoomId * NamedUser -> Async<Result<Room, string>>
       reconnect: string * string -> Async<Result<Room * NamedUser, string>>
       startGame: RoomId -> Async<Result<Room, string>>
-      submitResponse: RoomId * UserId * Response -> Async<Result<Room, ResponseError>> }
+      submitResponse: RoomId * UserId * Response -> Async<Result<Room, Response.Error>> }

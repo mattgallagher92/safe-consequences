@@ -70,30 +70,16 @@ module Room =
         candidate
 
     let create owner =
-        let room =
-            { Id = generateUniqueRoomId ()
-              Owner = owner
-              OtherPlayers = []
-              Game = Game.init () }
-
-        storage.AddRoom room
-        room
+        Room.create (generateUniqueRoomId ()) owner
+        |> Utils.tee storage.AddRoom
 
     let validateIdString s =
         storage.TryGetRoomById (RoomId s)
         |> Option.map (fun r -> r.Id)
 
     let join roomId (user : NamedUser) =
-        let addToRoom (user : NamedUser) room =
-            let (RoomId rid) = room.Id
-            let (UserId uid) = user.Id
-
-            Room.tryGetPlayerByUserId user.Id room
-            |> Option.map (fun user -> Error <| sprintf "%s (user %s) is already in room %s" user.Name (string uid) rid)
-            |> Option.defaultValue (Ok { room with OtherPlayers = user :: room.OtherPlayers })
-
         storage.GetRoomById roomId
-        |> Result.bind (addToRoom user)
+        |> Result.bind (Room.add user)
         |> Result.tee (storage.UpdateRoom roomId)
 
     let reconnect roomIdStr userIdStr =
@@ -108,46 +94,20 @@ module Room =
         }
 
     let startGame rid =
-        let startGameAndUpdateStorage room =
-            Game.start room.Game
-            |> Result.map (fun game -> { room with Game = game })
-            |> Result.tee (fun room -> storage.UpdateRoom room.Id room)
-
         storage.GetRoomById rid
-        |> Result.bind startGameAndUpdateStorage
-
-    let private validateResponse response =
-        let validateField invalidMsg s = if String.IsNullOrWhiteSpace s then Some invalidMsg else None
-
-        let error =
-            { ResponseError.empty with
-                  HisDescriptionErrorOpt = validateField "Enter a description" response.HisDescription
-                  HisNameErrorOpt = validateField "Enter a name" response.HisName
-                  HerDescriptionErrorOpt = validateField "Enter a description" response.HerDescription
-                  HerNameErrorOpt = validateField "Enter a name" response.HerName
-                  WhereTheyMetErrorOpt = validateField "Enter a place" response.WhereTheyMet
-                  WhatHeGaveHerErrorOpt = validateField "Enter an object" response.WhatHeGaveHer
-                  WhatHeSaidToHerErrorOpt = validateField "Enter a phrase or sentence" response.WhatHeSaidToHer
-                  WhatSheSaidToHimErrorOpt = validateField "Enter a phrase or sentence" response.WhatSheSaidToHim
-                  TheConsequenceErrorOpt = validateField "Enter a consequence" response.TheConsequence
-                  WhatTheWorldSaidErrorOpt = validateField "Enter a phrase or sentence" response.WhatTheWorldSaid
-                  GeneralErrorOpt = None }
-
-        if error = ResponseError.empty then Ok response else Error error
+        |> Result.bind Room.startGame
+        |> Result.tee (fun room -> storage.UpdateRoom room.Id room)
 
     let submitResponse rid uid response =
-        let updateResponseAndUpdateStorage room user response =
-            Game.updateResponse room.Game (Room.players room) user response
-            |> Result.map (fun g -> { room with Game = g })
-            |> Result.mapError ResponseError.general
-            |> Result.tee (fun r -> storage.UpdateRoom room.Id r)
-
         result {
-            let! room = storage.GetRoomById rid |> Result.mapError ResponseError.general
-            let! user = Room.getPlayerByUserId uid room |> Result.mapError ResponseError.general
-            let! response = validateResponse response
+            let! room = storage.GetRoomById rid |> Result.mapError Response.Error.general
+            let! user = Room.getPlayerByUserId uid room |> Result.mapError Response.Error.general
 
-            return! updateResponseAndUpdateStorage room user response
+            let! newRoom = Room.updateResponse room user response
+
+            storage.UpdateRoom room.Id newRoom
+
+            return newRoom
         }
 
 let consequencesApi =
