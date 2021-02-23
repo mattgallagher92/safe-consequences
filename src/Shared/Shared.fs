@@ -149,7 +149,7 @@ module Game =
         match game with
         | WaitingForResponses responses ->
             let newResponses = Map.add user response responses
-            let haveResponsesFromAllPlayers = allPlayers = (Map.toList responses |> List.map fst)
+            let haveResponsesFromAllPlayers = allPlayers = (Map.toList newResponses |> List.map fst)
             if haveResponsesFromAllPlayers then AllResponsesReceived newResponses else WaitingForResponses newResponses
             |> Ok
         | _ ->
@@ -219,6 +219,31 @@ module Room =
 
         Set.difference all haveSubmitted
         |> List.ofSeq
+
+    let mixedResponseFor room user =
+        // Necessary because % returns remainder (which can be negative), not canonical modulus (which is non-negative).
+        let modulus a n = if a % n < 0 && n > 0 || a % n > 0 && n < 0 then a % n + n else a % n
+
+        match room.Game with
+        | NotStarted | WaitingForResponses _ -> Error "Cannot get mixed response until all players have responded."
+        | AllResponsesReceived responses ->
+            let n = players room |> List.length
+            let i = players room |> List.findIndex (fun u -> u = user)
+            let player j = players room |> List.item (modulus j n)
+
+            {
+                HisDescription = responses.[player (i - 10)].HisDescription
+                HisName = responses.[player (i - 9)].HisName
+                HerDescription = responses.[player (i - 8)].HerDescription
+                HerName = responses.[player (i - 7)].HerName
+                WhereTheyMet = responses.[player (i - 6)].WhereTheyMet
+                WhatHeGaveHer = responses.[player (i - 5)].WhatHeGaveHer
+                WhatHeSaidToHer = responses.[player (i - 4)].WhatHeSaidToHer
+                WhatSheSaidToHim = responses.[player (i - 3)].WhatSheSaidToHim
+                TheConsequence = responses.[player (i - 2)].TheConsequence
+                WhatTheWorldSaid = responses.[player (i - 1)].WhatTheWorldSaid
+            }
+            |> Ok
 
 module Route =
     let builder typeName methodName =
