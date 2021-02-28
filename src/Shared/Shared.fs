@@ -19,10 +19,16 @@ module Result =
         match result with Ok x -> f x | Error _ -> ()
         result
 
+    let unsafeExtractOkContent = function Ok x -> x | Error s -> failwith s
+
 type ResultBuilder() =
     member __.Bind(x, f) = Result.bind f x
     member __.Return x = Ok x
     member __.ReturnFrom x = x
+
+module Map =
+
+    let keys map = Map.toList map |> List.map fst |> Set.ofList
 
 type UserId = UserId of Guid
 
@@ -149,7 +155,7 @@ module Game =
         match game with
         | WaitingForResponses responses ->
             let newResponses = Map.add user response responses
-            let haveResponsesFromAllPlayers = allPlayers = (Map.toList newResponses |> List.map fst)
+            let haveResponsesFromAllPlayers = Set.ofList allPlayers = Map.keys newResponses
             if haveResponsesFromAllPlayers then AllResponsesReceived newResponses else WaitingForResponses newResponses
             |> Ok
         | _ ->
@@ -220,7 +226,7 @@ module Room =
         Set.difference all haveSubmitted
         |> List.ofSeq
 
-    let mixedResponseFor room user =
+    let storyFor room user =
         // Necessary because % returns remainder (which can be negative), not canonical modulus (which is non-negative).
         let modulus a n = if a % n < 0 && n > 0 || a % n > 0 && n < 0 then a % n + n else a % n
 

@@ -44,6 +44,7 @@ type Page =
     | RoomIdPage of roomIdInputErrorOpt:string option
     | ResponsePage of Response.Error * Room
     | WaitingForOtherPlayersPage of Room
+    | StoryPage of Room
 
 type LobbyQuery =
     { RoomIdStr: string
@@ -188,10 +189,12 @@ let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
             match room.Game with
             | NotStarted ->
                 { model with ActivePage = Lobby (None, room); User = Named user }, Cmd.none
-            | WaitingForResponses responses | AllResponsesReceived responses ->
+            | WaitingForResponses responses ->
                 if Map.containsKey user responses
                 then { model with ActivePage = WaitingForOtherPlayersPage room; User = Named user }, Cmd.none
                 else { model with ActivePage = ResponsePage (Response.Error.empty, room); User = Named user }, Cmd.none
+            | AllResponsesReceived _ ->
+                { model with ActivePage = StoryPage room; User = Named user}, Cmd.none
 
 
     | StartGame rid ->
@@ -225,8 +228,10 @@ let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
                 | _ -> failwith "Assumption violated: HandleResponseSubmittedResult is only handled on ResponsePage."
             { model with ActivePage = ResponsePage <| (responseError, room) }, Cmd.none
         | Ok room ->
-            // TODO: if last player to submit, go to appropriate page.
-            { model with ActivePage = WaitingForOtherPlayersPage room } , Cmd.none
+            match room.Game with
+            | NotStarted -> failwith "Bug: response handled okay for inactive game."
+            | WaitingForResponses _ -> { model with ActivePage = WaitingForOtherPlayersPage room } , Cmd.none
+            | AllResponsesReceived _ -> { model with ActivePage = StoryPage room } , Cmd.none
 
 open Fable.React
 open Fulma
@@ -435,6 +440,40 @@ let waitingForOtherPlayersPage room model dispatch =
         ]
     ]
 
+let storyPage room model dispatch =
+    let r =
+        match model.User with
+        | Named u -> Room.storyFor room u
+        | Anonymous _ -> Error "Cannot get story: your user details are invalid."
+        |> Result.unsafeExtractOkContent
+
+    let inP s = s |> str |> List.singleton |> p []
+
+    Container.container [ ] [
+        Column.column [
+            Column.Width (Screen.All, Column.Is6)
+            Column.Offset (Screen.All, Column.Is3)
+        ] [
+            Heading.p
+                [ Heading.Modifiers [ Modifier.TextAlignment (Screen.All, TextAlignment.Centered) ] ]
+                [ str "The story for you to read out" ]
+            Box.box' [ ] [
+                Content.content [ ] [
+                    sprintf "The %s" r.HisDescription |> inP
+                    sprintf "%s" r.HisName |> inP
+                    sprintf "met the %s" r.HerDescription |> inP
+                    sprintf "%s" r.HerName |> inP
+                    sprintf "at %s." r.WhereTheyMet |> inP
+                    sprintf "He gave her %s." r.WhatHeGaveHer |> inP
+                    sprintf "He said \"%s\"." r.WhatHeSaidToHer |> inP
+                    sprintf "She said \"%s\"." r.WhatSheSaidToHim |> inP
+                    sprintf "The consequence was %s." r.TheConsequence |> inP
+                    sprintf "The world said \"%s\"." r.WhatTheWorldSaid |> inP
+                ]
+            ]
+        ]
+    ]
+
 let view (model : Model) (dispatch : Msg -> unit) =
     match model.ActivePage with
     | BlankPage -> div [] []
@@ -444,3 +483,4 @@ let view (model : Model) (dispatch : Msg -> unit) =
     | RoomIdPage roomIdInputErrorOpt -> roomIdPage roomIdInputErrorOpt model dispatch
     | ResponsePage (responseError, room) -> responsePage responseError room model dispatch
     | WaitingForOtherPlayersPage room -> waitingForOtherPlayersPage room model dispatch
+    | StoryPage room -> storyPage room model dispatch

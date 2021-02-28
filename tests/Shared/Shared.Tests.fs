@@ -46,23 +46,23 @@ let response3 =
       TheConsequence = "consequence3"
       WhatTheWorldSaid = "worldSaid3" }
 
-// TODO: run
 let shared = testList "Shared" [
     testCase "Game moves through states correctly" <| fun _ ->
         let game =
             Game.init ()
             |> Game.start
-            |> Result.bind (fun g -> Game.updateResponse g [ player1; player2; player3 ] player1 response1)
+            // Use different order to join order to test that there's no reliance on same order.
             |> Result.bind (fun g -> Game.updateResponse g [ player1; player2; player3 ] player2 response2)
+            |> Result.bind (fun g -> Game.updateResponse g [ player1; player2; player3 ] player3 response3)
             |> function | Ok r -> r | Error e -> failwithf "Bug creating game in test code: %A" e
         let expectedBefore =
             Map.empty
-            |> Map.add player1 response1
             |> Map.add player2 response2
+            |> Map.add player3 response3
             |> WaitingForResponses
         Expect.equal game expectedBefore "Game should be in WaitingForResponses state before last response received."
 
-        let actual = Game.updateResponse game [ player1; player2; player3 ] player3 response3
+        let actual = Game.updateResponse game [ player1; player2; player3 ] player1 response1
 
         let expectedAfter =
             Map.empty
@@ -85,7 +85,7 @@ let shared = testList "Shared" [
             |> Result.bind (fun r -> Room.updateResponse r player3 response3)
             |> function | Ok r -> r | Error e -> failwithf "Bug creating room in test code: %A" e
 
-        let actual = Room.mixedResponseFor room player1
+        let actual = Room.storyFor room player1
 
         let expectedFor1 =
             {
