@@ -257,188 +257,103 @@ let private formField label errorOpt value onChange =
         errorHelpFor errorOpt
     ]
 
-let landingPage reconnectErrorOpt (model : Model) (dispatch : Msg -> unit) =
+let private primaryButton onClick label =
+    Control.div [ ] [ Button.a [ Button.Color IsPrimary; Button.OnClick onClick ] [ str label ] ]
+
+let private secondaryButton onClick label =
+    Control.div [ ] [ Button.a [ Button.OnClick onClick ] [ str label ] ]
+
+let private page headingText content =
     Container.container [ ] [
         Column.column [
             Column.Width (Screen.All, Column.Is6)
             Column.Offset (Screen.All, Column.Is3)
         ] [
-            Heading.p [ Heading.Modifiers [ Modifier.TextAlignment (Screen.All, TextAlignment.Centered) ] ] [ str "consequences" ]
-            Box.box' [ ] [
-                Field.div [ Field.IsGrouped ] [
-                    Control.div [ ] [
-                        Button.a [
-                            Button.Color IsPrimary
-                            Button.OnClick (fun _ -> dispatch StartCreatingRoom)
-                        ] [
-                            str "Create a room"
-                        ]
-                    ]
-                    Control.div [ ] [
-                        Button.a [
-                            Button.OnClick (fun _ -> dispatch StartJoiningRoom)
-                        ] [
-                            str "Join a room"
-                        ]
-                    ]
-                ]
-                errorHelpFor reconnectErrorOpt
-            ]
+            Heading.p
+                [ Heading.Modifiers [ Modifier.TextAlignment (Screen.All, TextAlignment.Centered) ] ]
+                [ str headingText ]
+            Box.box' [ ] content
         ]
     ]
+
+let landingPage reconnectErrorOpt (model : Model) (dispatch : Msg -> unit) =
+    [
+        Field.div [ Field.IsGrouped ] [
+            primaryButton (fun _ -> dispatch StartCreatingRoom) "Create a room"
+            secondaryButton (fun _ -> dispatch StartJoiningRoom) "Join a room"
+        ]
+        errorHelpFor reconnectErrorOpt
+    ]
+    |> page "consequences"
 
 let usernamePage nameInputErrorOpt submitAction model (dispatch : Msg -> unit) =
-    Container.container [ ] [
-        Column.column [
-            Column.Width (Screen.All, Column.Is6)
-            Column.Offset (Screen.All, Column.Is3)
-        ] [
-            Heading.p
-                [ Heading.Modifiers [ Modifier.TextAlignment (Screen.All, TextAlignment.Centered) ] ]
-                [ str "What's your name?" ]
-            Box.box' [ ] [
-                formField "Name" nameInputErrorOpt model.NameInput (fun x -> SetNameInput x.Value |> dispatch)
-                Field.div [ ] [
-                    Control.p [ ] [
-                        Button.a [
-                            Button.Color IsPrimary
-                            Button.OnClick (fun _ -> dispatch <| SubmitName (model.NameInput, submitAction))
-                        ] [
-                            str "Submit"
-                        ]
-                    ]
-                ]
-            ]
-        ]
+    [
+        formField "Name" nameInputErrorOpt model.NameInput (fun x -> SetNameInput x.Value |> dispatch)
+        Field.div [ ] [ primaryButton (fun _ -> dispatch <| SubmitName (model.NameInput, submitAction)) "Submit" ]
     ]
+    |> page "What's your name?"
 
 let lobby startGameErrorOpt room model dispatch =
-    Container.container [ ] [
-        Column.column [
-            Column.Width (Screen.All, Column.Is6)
-            Column.Offset (Screen.All, Column.Is3)
-        ] [
-            Heading.p
-                [ Heading.Modifiers [ Modifier.TextAlignment (Screen.All, TextAlignment.Centered) ] ]
-                [ str <| sprintf "Room %s" (RoomId.value room.Id) ]
-            Box.box' [ ] [
-                Heading.p [ Heading.Is4 ] [
-                    str "Players"
-                ]
-                Content.content [ ] [
-                    ol [ ]
-                        (Room.players room |> List.map (fun p -> li [ ] [ str p.Name ]))
-                ]
-                errorHelpForWithModifiers [ Modifier.Spacing (Spacing.MarginBottom, Spacing.Is3) ] startGameErrorOpt
-                if User.equal model.User (Named room.Owner) then
-                    Field.div [ ] [
-                        Control.p [ ] [
-                            Button.a [
-                                Button.Color IsPrimary
-                                Button.OnClick (fun _ -> dispatch <| StartGame room.Id)
-                            ] [
-                                str "Start game"
-                            ]
-                        ]
-                    ]
-                else ()
+    [
+        Heading.p [ Heading.Is4 ] [ str "Players" ]
 
-            ]
-        ]
+        Content.content [ ] [ ol [ ] (Room.players room |> List.map (fun p -> li [ ] [ str p.Name ])) ]
+
+        errorHelpForWithModifiers [ Modifier.Spacing (Spacing.MarginBottom, Spacing.Is3) ] startGameErrorOpt
+
+        if User.equal model.User (Named room.Owner)
+        then Field.div [ ] [ primaryButton (fun _ -> dispatch <| StartGame room.Id) "Start game" ]
+        else ()
     ]
+    |> page (sprintf "Room %s" (RoomId.value room.Id))
 
 let roomIdPage roomIdInputErrorOpt model (dispatch : Msg -> unit) =
-    Container.container [ ] [
-        Column.column [
-            Column.Width (Screen.All, Column.Is6)
-            Column.Offset (Screen.All, Column.Is3)
-        ] [
-            Heading.p
-                [ Heading.Modifiers [ Modifier.TextAlignment (Screen.All, TextAlignment.Centered) ] ]
-                [ str "Which room do you want to join?" ]
-            Box.box' [ ] [
-                formField "Room ID" roomIdInputErrorOpt model.RoomIdInput (fun x -> SetRoomIdInput x.Value |> dispatch)
-                Field.div [ ] [
-                    Control.p [ ] [
-                        Button.a [
-                            Button.Color IsPrimary
-                            Button.OnClick (fun _ -> dispatch <| SubmitRoomId model.RoomIdInput)
-                        ] [
-                            str "Submit"
-                        ]
-                    ]
-                ]
-            ]
-        ]
+    [
+        formField "Room ID" roomIdInputErrorOpt model.RoomIdInput (fun x -> SetRoomIdInput x.Value |> dispatch)
+        Field.div [ ] [ primaryButton (fun _ -> dispatch <| SubmitRoomId model.RoomIdInput) "Submit" ]
     ]
+    |> page "Which room do you want to join?"
 
 open Shared.Response
 
 let responsePage responseError room model dispatch =
-    Container.container [ ] [
-        Column.column [
-            Column.Width (Screen.All, Column.Is6)
-            Column.Offset (Screen.All, Column.Is3)
-        ] [
-            Heading.p
-                [ Heading.Modifiers [ Modifier.TextAlignment (Screen.All, TextAlignment.Centered) ] ]
-                [ str "Enter your responses" ]
-            Box.box' [ ] [
-                formField "His description" responseError.HisDescriptionErrorOpt model.Response.HisDescription
-                    (fun x -> dispatch <| (ResponseMsg << HisDescription) x.Value)
-                formField "His name" responseError.HisNameErrorOpt model.Response.HisName
-                    (fun x -> dispatch <| (ResponseMsg << HisName) x.Value)
-                formField "Her description" responseError.HerDescriptionErrorOpt model.Response.HerDescription
-                    (fun x -> dispatch <| (ResponseMsg << HerDescription) x.Value)
-                formField "Her name" responseError.HerNameErrorOpt model.Response.HerName
-                    (fun x -> dispatch <| (ResponseMsg << HerName) x.Value)
-                formField "Where they met" responseError.WhereTheyMetErrorOpt model.Response.WhereTheyMet
-                    (fun x -> dispatch <| (ResponseMsg << WhereTheyMet) x.Value)
-                formField "What he gave her" responseError.WhatHeGaveHerErrorOpt model.Response.WhatHeGaveHer
-                    (fun x -> dispatch <| (ResponseMsg << WhatHeGaveHer) x.Value)
-                formField "What he said to her" responseError.WhatHeSaidToHerErrorOpt model.Response.WhatHeSaidToHer
-                    (fun x -> dispatch <| (ResponseMsg << WhatHeSaidToHer) x.Value)
-                formField "What she said to him" responseError.WhatSheSaidToHimErrorOpt model.Response.WhatSheSaidToHim
-                    (fun x -> dispatch <| (ResponseMsg << WhatSheSaidToHim) x.Value)
-                formField "The consequence" responseError.TheConsequenceErrorOpt model.Response.TheConsequence
-                    (fun x -> dispatch <| (ResponseMsg << TheConsequence) x.Value)
-                formField "What the world said" responseError.WhatTheWorldSaidErrorOpt model.Response.WhatTheWorldSaid
-                    (fun x -> dispatch <| (ResponseMsg << WhatTheWorldSaid) x.Value)
-                Field.div [ ] [
-                    Control.p [ ] [
-                        Button.a [
-                            Button.Color IsPrimary
-                            Button.OnClick (fun _ -> dispatch <| SubmitResponse room.Id)
-                        ] [
-                            str "Submit"
-                        ]
-                    ]
-                ]
-            ]
-        ]
+    [
+        formField "His description" responseError.HisDescriptionErrorOpt model.Response.HisDescription
+            (fun x -> dispatch <| (ResponseMsg << HisDescription) x.Value)
+        formField "His name" responseError.HisNameErrorOpt model.Response.HisName
+            (fun x -> dispatch <| (ResponseMsg << HisName) x.Value)
+        formField "Her description" responseError.HerDescriptionErrorOpt model.Response.HerDescription
+            (fun x -> dispatch <| (ResponseMsg << HerDescription) x.Value)
+        formField "Her name" responseError.HerNameErrorOpt model.Response.HerName
+            (fun x -> dispatch <| (ResponseMsg << HerName) x.Value)
+        formField "Where they met" responseError.WhereTheyMetErrorOpt model.Response.WhereTheyMet
+            (fun x -> dispatch <| (ResponseMsg << WhereTheyMet) x.Value)
+        formField "What he gave her" responseError.WhatHeGaveHerErrorOpt model.Response.WhatHeGaveHer
+            (fun x -> dispatch <| (ResponseMsg << WhatHeGaveHer) x.Value)
+        formField "What he said to her" responseError.WhatHeSaidToHerErrorOpt model.Response.WhatHeSaidToHer
+            (fun x -> dispatch <| (ResponseMsg << WhatHeSaidToHer) x.Value)
+        formField "What she said to him" responseError.WhatSheSaidToHimErrorOpt model.Response.WhatSheSaidToHim
+            (fun x -> dispatch <| (ResponseMsg << WhatSheSaidToHim) x.Value)
+        formField "The consequence" responseError.TheConsequenceErrorOpt model.Response.TheConsequence
+            (fun x -> dispatch <| (ResponseMsg << TheConsequence) x.Value)
+        formField "What the world said" responseError.WhatTheWorldSaidErrorOpt model.Response.WhatTheWorldSaid
+            (fun x -> dispatch <| (ResponseMsg << WhatTheWorldSaid) x.Value)
+        Field.div [ ] [ primaryButton (fun _ -> dispatch <| SubmitResponse room.Id) "Submit" ]
     ]
+    |> page "Enter your responses"
 
 let waitingForOtherPlayersPage room model dispatch =
-    Container.container [ ] [
-        Column.column [
-            Column.Width (Screen.All, Column.Is6)
-            Column.Offset (Screen.All, Column.Is3)
-        ] [
-            Heading.p
-                [ Heading.Modifiers [ Modifier.TextAlignment (Screen.All, TextAlignment.Centered) ] ]
-                [ str "Waiting for other players" ]
-            Box.box' [ ] [
-                Heading.p [ Heading.Is4 ] [ str "Waiting for" ]
-                Content.content [ ] [
-                    ul [ ] (Room.playersWhoHaveNotSubmittedResponses room |> List.map (fun p -> li [ ] [ str p.Name ]))
-                ]
-                Heading.p [ Heading.Is4 ] [ str "Submitted responses" ]
-                Content.content [ ] [
-                    ul [ ] (Room.playersWhoHaveSubmittedResponses room |> List.map (fun p -> li [ ] [ str p.Name ]))
-                ]
-            ]
+    [
+        Heading.p [ Heading.Is4 ] [ str "Waiting for" ]
+        Content.content [ ] [
+            ul [ ] (Room.playersWhoHaveNotSubmittedResponses room |> List.map (fun p -> li [ ] [ str p.Name ]))
+        ]
+        Heading.p [ Heading.Is4 ] [ str "Submitted responses" ]
+        Content.content [ ] [
+            ul [ ] (Room.playersWhoHaveSubmittedResponses room |> List.map (fun p -> li [ ] [ str p.Name ]))
         ]
     ]
+    |> page "Waiting for other players"
 
 let storyPage room model dispatch =
     let r =
@@ -449,30 +364,21 @@ let storyPage room model dispatch =
 
     let inP s = s |> str |> List.singleton |> p []
 
-    Container.container [ ] [
-        Column.column [
-            Column.Width (Screen.All, Column.Is6)
-            Column.Offset (Screen.All, Column.Is3)
-        ] [
-            Heading.p
-                [ Heading.Modifiers [ Modifier.TextAlignment (Screen.All, TextAlignment.Centered) ] ]
-                [ str "The story for you to read out" ]
-            Box.box' [ ] [
-                Content.content [ ] [
-                    sprintf "The %s" r.HisDescription |> inP
-                    sprintf "%s" r.HisName |> inP
-                    sprintf "met the %s" r.HerDescription |> inP
-                    sprintf "%s" r.HerName |> inP
-                    sprintf "at %s." r.WhereTheyMet |> inP
-                    sprintf "He gave her %s." r.WhatHeGaveHer |> inP
-                    sprintf "He said \"%s\"." r.WhatHeSaidToHer |> inP
-                    sprintf "She said \"%s\"." r.WhatSheSaidToHim |> inP
-                    sprintf "The consequence was %s." r.TheConsequence |> inP
-                    sprintf "The world said \"%s\"." r.WhatTheWorldSaid |> inP
-                ]
-            ]
+    [
+        Content.content [ ] [
+            sprintf "The %s" r.HisDescription |> inP
+            sprintf "%s" r.HisName |> inP
+            sprintf "met the %s" r.HerDescription |> inP
+            sprintf "%s" r.HerName |> inP
+            sprintf "at %s." r.WhereTheyMet |> inP
+            sprintf "He gave her %s." r.WhatHeGaveHer |> inP
+            sprintf "He said \"%s\"." r.WhatHeSaidToHer |> inP
+            sprintf "She said \"%s\"." r.WhatSheSaidToHim |> inP
+            sprintf "The consequence was %s." r.TheConsequence |> inP
+            sprintf "The world said \"%s\"." r.WhatTheWorldSaid |> inP
         ]
     ]
+    |> page "The story for you to read out"
 
 let view (model : Model) (dispatch : Msg -> unit) =
     match model.ActivePage with
