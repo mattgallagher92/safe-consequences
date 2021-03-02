@@ -242,6 +242,7 @@ let private errorHelpForWithModifiers modifiers msgOpt =
 
 let private errorHelpFor = errorHelpForWithModifiers []
 
+// TODO: sort out tabindex.
 let private formField label errorOpt value onChange =
     Field.div [ ] [
         Label.label [ ] [ str label ]
@@ -258,10 +259,10 @@ let private formField label errorOpt value onChange =
     ]
 
 let private primaryButton onClick label =
-    Control.div [ ] [ Button.a [ Button.Color IsPrimary; Button.OnClick onClick ] [ str label ] ]
+    Control.div [ ] [ Button.button [ Button.Color IsPrimary; Button.OnClick onClick ] [ str label ] ]
 
 let private secondaryButton onClick label =
-    Control.div [ ] [ Button.a [ Button.OnClick onClick ] [ str label ] ]
+    Control.div [ ] [ Button.button [ Button.OnClick onClick ] [ str label ] ]
 
 let private page headingText content =
     Container.container [ ] [
