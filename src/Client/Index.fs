@@ -242,7 +242,6 @@ let private errorHelpForWithModifiers modifiers msgOpt =
 
 let private errorHelpFor = errorHelpForWithModifiers []
 
-// TODO: sort out tabindex.
 let private formField label errorOpt value onChange =
     Field.div [ ] [
         Label.label [ ] [ str label ]
