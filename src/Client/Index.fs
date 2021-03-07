@@ -35,6 +35,7 @@ type Msg =
     | ResponseMsg of ResponseMsg
     | SubmitResponse of RoomId
     | HandleResponseSubmittedResult of Result<Room, Response.Error>
+    | ReturnToLobby of Room
 
 type Page =
     | BlankPage
@@ -233,6 +234,8 @@ let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
             | WaitingForResponses _ -> { model with ActivePage = WaitingForOtherPlayersPage room } , Cmd.none
             | AllResponsesReceived _ -> { model with ActivePage = StoryPage room } , Cmd.none
 
+    | ReturnToLobby room -> { model with ActivePage = Lobby (None, room) }, Cmd.none
+
 open Fable.React
 open Fulma
 
@@ -377,6 +380,7 @@ let storyPage room model dispatch =
             sprintf "The consequence was %s." r.TheConsequence |> inP
             sprintf "The world said \"%s\"." r.WhatTheWorldSaid |> inP
         ]
+        primaryButton (fun _ -> dispatch <| ReturnToLobby room) "Return to the lobby"
     ]
     |> page "The story for you to read out"
 

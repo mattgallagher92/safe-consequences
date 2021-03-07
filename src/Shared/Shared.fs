@@ -148,18 +148,20 @@ module Game =
 
     let start g =
         match g with
-        | NotStarted -> Ok <| WaitingForResponses Map.empty
-        | _ -> Error <| sprintf "The game has already started."
+        | NotStarted | AllResponsesReceived _ -> Ok <| WaitingForResponses Map.empty
+        | WaitingForResponses _ -> Error "The game has already started."
 
     let updateResponse game allPlayers user response =
         match game with
+        | NotStarted ->
+            Error "The game has not started."
         | WaitingForResponses responses ->
             let newResponses = Map.add user response responses
             let haveResponsesFromAllPlayers = Set.ofList allPlayers = Map.keys newResponses
             if haveResponsesFromAllPlayers then AllResponsesReceived newResponses else WaitingForResponses newResponses
             |> Ok
-        | _ ->
-            Error <| sprintf "The game is no longer accepting responses."
+        | AllResponsesReceived _ ->
+            Error "The game is no longer accepting responses."
 
 type RoomId = RoomId of string
 
