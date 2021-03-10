@@ -3,6 +3,7 @@ module App
 open Elmish
 open Elmish.React
 open Elmish.UrlParser
+open Elmish.Navigation
 
 #if DEBUG
 open Elmish.Debug
