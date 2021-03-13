@@ -287,7 +287,7 @@ let landingPage reconnectErrorOpt (model : Model) (dispatch : Msg -> unit) =
         ]
         errorHelpFor reconnectErrorOpt
     ]
-    |> page "consequences"
+    |> page "Consequences"
 
 let usernamePage nameInputErrorOpt submitAction model (dispatch : Msg -> unit) =
     [
